@@ -33,10 +33,10 @@ services:
       start_period: 1s
 
   kokoro-tts:
-    image: ghcr.io/remsky/kokoro-fastapi-gpu:v0.0.5post1
+    # image: ghcr.io/remsky/kokoro-fastapi-gpu:v0.0.5post1
     # Uncomment below (and comment out above) to build from source instead of using the released image
-    # build:
-      # context: .
+    build:
+      context: .
     volumes:
       - ./api/src:/app/api/src
       - ./Kokoro-82M:/app/Kokoro-82M
