@@ -7,7 +7,10 @@
 [![Coverage](https://img.shields.io/badge/coverage-49%25-grey)]()
 [![Tested at Model Commit](https://img.shields.io/badge/last--tested--model--commit-a67f113-blue)](https://huggingface.co/hexgrad/Kokoro-82M/tree/c3b0d86e2a980e027ef71c28819ea02e351c2667) [![Try on Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Try%20on-Spaces-blue)](https://huggingface.co/spaces/Remsky/Kokoro-TTS-Zero)
 
-> Support for Kokoro-82M v1.0 coming very soon!
+> [!WARNING]
+> Unstable build; currently partly functional
+
+> Manually download the .pth file to the models folder and use the WebUI to test
 
 Dockerized FastAPI wrapper for [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) text-to-speech model
 - OpenAI-compatible Speech endpoint, with inline voice combination, and mapped naming/models for strict systems
