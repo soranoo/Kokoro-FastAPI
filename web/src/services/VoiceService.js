@@ -2,11 +2,36 @@ export class VoiceService {
     constructor() {
         this.availableVoices = [];
         this.selectedVoices = new Set();
+        this.currentVersion = null;
+        this.availableVersions = [];
+    }
+
+    async loadVersions() {
+        try {
+            const response = await fetch('/v2/audio/versions');
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail?.message || 'Failed to load versions');
+            }
+            
+            const data = await response.json();
+            this.availableVersions = data.versions;
+            this.currentVersion = data.current;
+            return data;
+        } catch (error) {
+            console.error('Failed to load versions:', error);
+            throw error;
+        }
     }
 
     async loadVoices() {
         try {
-            const response = await fetch('/v1/audio/voices');
+            // Load versions first if not loaded
+            if (!this.currentVersion) {
+                await this.loadVersions();
+            }
+
+            const response = await fetch(`/v2/audio/voices?version=${this.currentVersion}`);
             if (!response.ok) {
                 const error = await response.json();
                 throw new Error(error.detail?.message || 'Failed to load voices');
@@ -27,7 +52,10 @@ export class VoiceService {
                 }
             }
 
-            return this.availableVoices;
+            return {
+                voices: this.availableVoices,
+                version: data.version
+            };
         } catch (error) {
             console.error('Failed to load voices:', error);
             throw error;
@@ -44,6 +72,40 @@ export class VoiceService {
 
     getSelectedVoiceString() {
         return Array.from(this.selectedVoices).join('+');
+    }
+
+    async setVersion(version) {
+        try {
+            const response = await fetch('/v2/audio/version', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(version)
+            });
+            
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail?.message || 'Failed to set version');
+            }
+            
+            const data = await response.json();
+            this.currentVersion = data.current;
+            this.availableVersions = data.versions;
+            
+            // Reload voices for new version
+            await this.loadVoices();
+            return data;
+        } catch (error) {
+            console.error('Failed to set version:', error);
+            throw error;
+        }
+    }
+
+    getCurrentVersion() {
+        return this.currentVersion;
+    }
+
+    getAvailableVersions() {
+        return this.availableVersions;
     }
 
     addVoice(voice) {

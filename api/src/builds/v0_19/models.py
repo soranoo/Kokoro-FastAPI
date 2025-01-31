@@ -338,7 +338,7 @@ def recursive_munch(d):
         return d
 
 async def build_model(path, device):
-    from ..core.paths import load_json, load_model_weights
+    from api.src.core.paths import load_json, load_model_weights
     
     config = Path(__file__).parent / 'config.json'
     assert config.exists(), f'Config path incorrect: config.json not found at {config}'

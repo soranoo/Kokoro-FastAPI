@@ -17,6 +17,7 @@ from .core.config import settings
 from .routers.web_player import router as web_router
 from .routers.development import router as dev_router
 from .routers.openai_compatible import router as openai_router
+from .routers.openai_compatible_v2 import router as openai_router_v2
 from .routers.debug import router as debug_router
 
 
@@ -46,6 +47,7 @@ setup_logger()
 async def lifespan(app: FastAPI):
     """Lifespan context manager for model initialization"""
     from .inference.model_manager import get_manager
+    from .inference.version_manager import get_version_manager
     from .inference.voice_manager import get_manager as get_voice_manager
     from .services.temp_manager import cleanup_temp_files
 
@@ -56,11 +58,17 @@ async def lifespan(app: FastAPI):
 
     try:
         # Initialize managers globally
-        model_manager = await get_manager()
+        model_manager = await get_manager()  # For v0.19 compatibility
+        version_manager = await get_version_manager()  # For v1.0 support
         voice_manager = await get_voice_manager()
 
-        # Initialize model with warmup and get status
+        # Initialize v0.19 model with warmup and get status
         device, model, voicepack_count = await model_manager.initialize_with_warmup(voice_manager)
+
+        # Pre-load v1.0 model
+        v1_model = await version_manager.get_model("v1.0")
+        logger.info("Initialized v1.0 model")
+
     except FileNotFoundError:
         logger.error("""
 Model files not found! You need to either:
@@ -94,6 +102,7 @@ Model files not found! You need to either:
                 """
     startup_msg += f"\nModel warmed up on {device}: {model}"
     startup_msg += f"\n{voicepack_count} voice packs loaded"
+    startup_msg += f"\nKokoro v1.0 model loaded"
     
     # Add web player info if enabled
     if settings.enable_web_player:
@@ -127,7 +136,8 @@ if settings.cors_enabled:
     )
 
 # Include routers
-app.include_router(openai_router, prefix="/v1")
+app.include_router(openai_router, prefix="/v1")  # Legacy v0.19 endpoints
+app.include_router(openai_router_v2)  # New v2 endpoints with version support
 app.include_router(dev_router)  # Development endpoints
 app.include_router(debug_router)  # Debug endpoints
 if settings.enable_web_player:

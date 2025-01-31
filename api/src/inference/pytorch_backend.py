@@ -9,7 +9,7 @@ import numpy as np
 import torch
 from loguru import logger
 
-from ..builds.models import build_model
+from ..builds.v0_19.models import build_model
 from ..core import paths
 from ..core.model_config import model_config
 from ..core.config import settings

@@ -4,11 +4,12 @@ from pathlib import Path
 
 from openai import OpenAI
 
-# gets OPENAI_API_KEY from your environment variables
+# By default, the library tries to take OPENAI_API_KEY 
+# from your environment variables, 
+# so set explicitly to any string to allow it to skip the check
 openai = OpenAI(base_url="http://localhost:8880/v1", api_key="not-needed-for-local")
 
 speech_file_path = Path(__file__).parent / "speech.mp3"
-
 
 def main() -> None:
     stream_to_speakers()
@@ -16,8 +17,9 @@ def main() -> None:
     # Create text-to-speech audio file
     with openai.audio.speech.with_streaming_response.create(
         model="kokoro",
-        voice="af_bella",
+        voice="af_sky+af_bella",
         input="the quick brown fox jumped over the lazy dogs",
+        response_format="mp3",
     ) as response:
         response.stream_to_file(speech_file_path)
 

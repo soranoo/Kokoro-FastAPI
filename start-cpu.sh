@@ -5,7 +5,7 @@ PROJECT_ROOT=$(pwd)
 
 # Set environment variables
 export USE_GPU=false
-export USE_ONNX=true
+export USE_ONNX=false
 export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/api
 export MODEL_DIR=$PROJECT_ROOT/api/src/models
 export VOICES_DIR=$PROJECT_ROOT/api/src/voices

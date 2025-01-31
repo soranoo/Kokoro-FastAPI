@@ -97,8 +97,12 @@ async def get_model_path(model_name: str) -> str:
     # Ensure model directory exists
     os.makedirs(model_dir, exist_ok=True)
     
-    # Search in model directory
-    search_paths = [model_dir]
+    # Search in model directory and version subdirectories
+    search_paths = [
+        model_dir,
+        os.path.join(model_dir, "v1_0"),
+        os.path.join(model_dir, "v0_19")
+    ]
     logger.debug(f"Searching for model in path: {model_dir}")
     
     return await _find_file(model_name, search_paths)
@@ -178,8 +182,7 @@ async def load_voice_tensor(voice_path: str, device: str = "cpu") -> torch.Tenso
             data = await f.read()
             return torch.load(
                 io.BytesIO(data),
-                map_location=device,
-                weights_only=True
+                map_location=device
             )
     except Exception as e:
         raise RuntimeError(f"Failed to load voice tensor from {voice_path}: {e}")
@@ -242,8 +245,7 @@ async def load_model_weights(path: str, device: str = "cpu") -> dict:
             data = await f.read()
             return torch.load(
                 io.BytesIO(data),
-                map_location=device,
-                weights_only=True
+                map_location=device
             )
     except Exception as e:
         raise RuntimeError(f"Failed to load model weights from {path}: {e}")

@@ -11,6 +11,11 @@ export class AudioService {
         this.CHARS_PER_CHUNK = 300; // Estimated chars per chunk
         this.serverDownloadPath = null; // Server-side download path
         this.pendingOperations = []; // Queue for buffer operations
+        this.currentVersion = null; // Current model version
+    }
+
+    setVersion(version) {
+        this.currentVersion = version;
     }
 
     async streamAudio(text, voice, speed, onProgress) {
@@ -33,7 +38,7 @@ export class AudioService {
             
             console.log('AudioService: Making API call...', { text, voice, speed });
             
-            const response = await fetch('/v1/audio/speech', {
+            const response = await fetch('/v2/audio/speech', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -42,7 +47,8 @@ export class AudioService {
                     response_format: 'mp3',
                     stream: true,
                     speed: speed,
-                    return_download_link: true
+                    return_download_link: true,
+                    version: this.currentVersion
                 }),
                 signal: this.controller.signal
             });
@@ -55,7 +61,7 @@ export class AudioService {
             // Check for download path as soon as we get the response
             const downloadPath = response.headers.get('x-download-path');
             if (downloadPath) {
-                this.serverDownloadPath = `/v1${downloadPath}`;
+                this.serverDownloadPath = `/v2${downloadPath}`;
                 console.log('Download path received:', this.serverDownloadPath);
             }
 
@@ -123,7 +129,7 @@ export class AudioService {
                     const downloadPath = headers['x-download-path'];
                     if (downloadPath) {
                         // Prepend /v1 since the router is mounted there
-                        this.serverDownloadPath = `/v1${downloadPath}`;
+                        this.serverDownloadPath = `/v2${downloadPath}`;
                         console.log('Download path received:', this.serverDownloadPath);
                     } else {
                         console.warn('No X-Download-Path header found. Available headers:',

@@ -36,6 +36,34 @@ textarea::placeholder {
     gap: 1rem;
 }
 
+.version-select-wrapper {
+    width: 100%;
+}
+
+.version-select {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    background: rgba(15, 23, 42, 0.3);
+    color: var(--text);
+    font-size: 1rem;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    font-family: var(--font-family);
+}
+
+.version-select:focus {
+    outline: none;
+    border-color: var(--fg-color);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+}
+
+.version-select option {
+    background: var(--surface);
+    color: var(--text);
+}
+
 .voice-search {
     width: 100%;
     padding: 0.75rem 1rem;

@@ -5,13 +5,21 @@ export class VoiceSelector {
             voiceSearch: document.getElementById('voice-search'),
             voiceDropdown: document.getElementById('voice-dropdown'),
             voiceOptions: document.getElementById('voice-options'),
-            selectedVoices: document.getElementById('selected-voices')
+            selectedVoices: document.getElementById('selected-voices'),
+            versionSelect: document.getElementById('version-select')
         };
         
         this.setupEventListeners();
     }
 
     setupEventListeners() {
+        // Version selection
+        this.elements.versionSelect?.addEventListener('change', async (e) => {
+            await this.voiceService.setVersion(e.target.value);
+            this.renderVoiceOptions(this.voiceService.getAvailableVoices());
+            this.updateSelectedVoicesDisplay();
+        });
+
         // Voice search
         this.elements.voiceSearch.addEventListener('input', (e) => {
             const filteredVoices = this.voiceService.filterVoices(e.target.value);
@@ -101,8 +109,28 @@ export class VoiceSelector {
         }
     }
 
+    renderVersionSelect() {
+        if (!this.elements.versionSelect) return;
+        
+        const versions = this.voiceService.getAvailableVersions();
+        const currentVersion = this.voiceService.getCurrentVersion();
+        
+        this.elements.versionSelect.innerHTML = versions
+            .map(version => `
+                <option value="${version}" ${version === currentVersion ? 'selected' : ''}>
+                    ${version}
+                </option>
+            `)
+            .join('');
+    }
+
     async initialize() {
         try {
+            // Load versions first
+            await this.voiceService.loadVersions();
+            this.renderVersionSelect();
+
+            // Then load voices for current version
             await this.voiceService.loadVoices();
             this.renderVoiceOptions(this.voiceService.getAvailableVoices());
             this.updateSelectedVoicesDisplay();
