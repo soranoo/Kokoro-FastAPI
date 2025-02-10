@@ -13,7 +13,7 @@ Accept: application/json
 ### Get Session Pool Status
 # Shows active ONNX sessions, CUDA stream usage, and session ages
 # Useful for debugging resource exhaustion issues
-GET http://localhost:8880/debug/session_pools
+GET http://localhost:8880/debug/model_pool
 Accept: application/json
 
 ### List Available Models

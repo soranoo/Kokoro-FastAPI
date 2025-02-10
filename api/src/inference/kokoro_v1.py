@@ -24,6 +24,11 @@ class KokoroV1(BaseModelBackend):
         self._device = "cuda" if settings.use_gpu else "cpu"
         self._model: Optional[KModel] = None
         self._pipelines: Dict[str, KPipeline] = {}  # Store pipelines by lang_code
+        self._stream: Optional[torch.cuda.Stream] = None
+
+    def set_stream(self, stream: torch.cuda.Stream) -> None:
+        """Set CUDA stream for this instance."""
+        self._stream = stream
 
     async def load_model(self, path: str) -> None:
         """Load pre-baked model.
@@ -146,14 +151,27 @@ class KokoroV1(BaseModelBackend):
             logger.debug(
                 f"Generating audio from tokens with lang_code '{pipeline_lang_code}': '{tokens[:100]}...'"
             )
-            for result in pipeline.generate_from_tokens(
-                tokens=tokens, voice=voice_path, speed=speed, model=self._model
-            ):
-                if result.audio is not None:
-                    logger.debug(f"Got audio chunk with shape: {result.audio.shape}")
-                    yield result.audio.numpy()
-                else:
-                    logger.warning("No audio in chunk")
+
+            # Use CUDA stream if available
+            if self._stream and self._device == "cuda":
+                with torch.cuda.stream(self._stream):
+                    for result in pipeline.generate_from_tokens(
+                        tokens=tokens, voice=voice_path, speed=speed, model=self._model
+                    ):
+                        if result.audio is not None:
+                            logger.debug(f"Got audio chunk with shape: {result.audio.shape}")
+                            yield result.audio.numpy()
+                        else:
+                            logger.warning("No audio in chunk")
+            else:
+                for result in pipeline.generate_from_tokens(
+                    tokens=tokens, voice=voice_path, speed=speed, model=self._model
+                ):
+                    if result.audio is not None:
+                        logger.debug(f"Got audio chunk with shape: {result.audio.shape}")
+                        yield result.audio.numpy()
+                    else:
+                        logger.warning("No audio in chunk")
 
         except Exception as e:
             logger.error(f"Generation failed: {e}")
@@ -239,14 +257,27 @@ class KokoroV1(BaseModelBackend):
             logger.debug(
                 f"Generating audio for text with lang_code '{pipeline_lang_code}': '{text[:100]}...'"
             )
-            for result in pipeline(
-                text, voice=voice_path, speed=speed, model=self._model
-            ):
-                if result.audio is not None:
-                    logger.debug(f"Got audio chunk with shape: {result.audio.shape}")
-                    yield result.audio.numpy()
-                else:
-                    logger.warning("No audio in chunk")
+
+            # Use CUDA stream if available
+            if self._stream and self._device == "cuda":
+                with torch.cuda.stream(self._stream):
+                    for result in pipeline(
+                        text, voice=voice_path, speed=speed, model=self._model
+                    ):
+                        if result.audio is not None:
+                            logger.debug(f"Got audio chunk with shape: {result.audio.shape}")
+                            yield result.audio.numpy()
+                        else:
+                            logger.warning("No audio in chunk")
+            else:
+                for result in pipeline(
+                    text, voice=voice_path, speed=speed, model=self._model
+                ):
+                    if result.audio is not None:
+                        logger.debug(f"Got audio chunk with shape: {result.audio.shape}")
+                        yield result.audio.numpy()
+                    else:
+                        logger.warning("No audio in chunk")
 
         except Exception as e:
             logger.error(f"Generation failed: {e}")

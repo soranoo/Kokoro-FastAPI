@@ -22,6 +22,9 @@ class PyTorchConfig(BaseModel):
 
     memory_threshold: float = Field(0.8, description="Memory threshold for cleanup")
     retry_on_oom: bool = Field(True, description="Whether to retry on OOM errors")
+    max_concurrent_models: int = Field(2, description="Maximum number of concurrent model instances")
+    max_queue_size: int = Field(32, description="Maximum size of request queue")
+    chunk_semaphore_limit: int = Field(4, description="Maximum concurrent chunk processing per model")
 
     class Config:
         frozen = True

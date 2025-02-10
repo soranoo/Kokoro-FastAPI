@@ -143,59 +143,49 @@ async def get_system_info():
     }
 
 
-@router.get("/debug/session_pools")
-async def get_session_pool_info():
-    """Get information about ONNX session pools."""
+@router.get("/debug/model_pool")
+async def get_model_pool_info():
+    """Get information about model pool status."""
     from ..inference.model_manager import get_manager
 
     manager = await get_manager()
-    pools = manager._session_pools
     current_time = time.time()
 
-    pool_info = {}
+    if not manager._pool:
+        return {"status": "Model pool not initialized"}
 
-    # Get CPU pool info
-    if "onnx_cpu" in pools:
-        cpu_pool = pools["onnx_cpu"]
-        pool_info["cpu"] = {
-            "active_sessions": len(cpu_pool._sessions),
-            "max_sessions": cpu_pool._max_size,
-            "sessions": [
-                {"model": path, "age_seconds": current_time - info.last_used}
-                for path, info in cpu_pool._sessions.items()
-            ],
+    pool_info = {
+        "max_instances": manager._pool.max_instances,
+        "active_instances": len(manager._pool._instances),
+        "queue_size": manager._pool._request_queue.qsize(),
+        "max_queue_size": manager._pool._request_queue.maxsize,
+        "instances": []
+    }
+
+    # Get instance info
+    for instance in manager._pool._instances:
+        instance_info = {
+            "id": instance.instance_id,
+            "in_use": instance._in_use,
+            "device": instance._device,
+            "has_stream": instance._stream is not None,
+            "last_used": current_time - instance._last_used if instance._last_used > 0 else None
         }
+        pool_info["instances"].append(instance_info)
 
-    # Get GPU pool info
-    if "onnx_gpu" in pools:
-        gpu_pool = pools["onnx_gpu"]
-        pool_info["gpu"] = {
-            "active_sessions": len(gpu_pool._sessions),
-            "max_streams": gpu_pool._max_size,
-            "available_streams": len(gpu_pool._available_streams),
-            "sessions": [
-                {
-                    "model": path,
-                    "age_seconds": current_time - info.last_used,
-                    "stream_id": info.stream_id,
+    # Add GPU info if available
+    if GPU_AVAILABLE:
+        try:
+            gpus = GPUtil.getGPUs()
+            if gpus:
+                gpu = gpus[0]  # Assume first GPU
+                pool_info["gpu_memory"] = {
+                    "total_mb": gpu.memoryTotal,
+                    "used_mb": gpu.memoryUsed,
+                    "free_mb": gpu.memoryFree,
+                    "percent_used": (gpu.memoryUsed / gpu.memoryTotal) * 100,
                 }
-                for path, info in gpu_pool._sessions.items()
-            ],
-        }
-
-        # Add GPU memory info if available
-        if GPU_AVAILABLE:
-            try:
-                gpus = GPUtil.getGPUs()
-                if gpus:
-                    gpu = gpus[0]  # Assume first GPU
-                    pool_info["gpu"]["memory"] = {
-                        "total_mb": gpu.memoryTotal,
-                        "used_mb": gpu.memoryUsed,
-                        "free_mb": gpu.memoryFree,
-                        "percent_used": (gpu.memoryUsed / gpu.memoryTotal) * 100,
-                    }
-            except Exception:
-                pass
+        except Exception:
+            pass
 
     return pool_info
