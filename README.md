@@ -13,7 +13,7 @@
 [![Tested at Model Commit](https://img.shields.io/badge/last--tested--model--commit-1.0::9901c2b-blue)](https://huggingface.co/hexgrad/Kokoro-82M/commit/9901c2b79161b6e898b7ea857ae5298f47b8b0d6)
 
 Dockerized FastAPI wrapper for [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) text-to-speech model
-- Multi-language support (English, Japanese, Korean, Chinese, _Vietnamese soon_)
+- Multi-language support (English, Japanese, Chinese, _Vietnamese soon_)
 - OpenAI-compatible Speech endpoint, NVIDIA GPU accelerated or CPU inference with PyTorch 
 - ONNX support coming soon, see v0.1.5 and earlier for legacy ONNX support in the interim
 - Debug endpoints for monitoring system stats, integrated web UI on localhost:8880/web
@@ -34,10 +34,12 @@ Pre built images are available to run, with arm/multi-arch support, and baked in
 Refer to the core/config.py file for a full list of variables which can be managed via the environment
 
 ```bash
-# the `latest` tag can be used, though it may have some unexpected bonus features which impact stability. Named versions should be pinned for your regular usage. Feedback/testing is always welcome
+# the `latest` tag can be used, though it may have some unexpected bonus features which impact stability.
+ Named versions should be pinned for your regular usage.
+ Feedback/testing is always welcome
 
-docker run -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-cpu:v0.3.0 # CPU, or:
-docker run --gpus all -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-gpu:v0.3.0  #NVIDIA GPU
+docker run -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-cpu:latest # CPU, or:
+docker run --gpus all -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-gpu:latest  #NVIDIA GPU
 ```
 
 
