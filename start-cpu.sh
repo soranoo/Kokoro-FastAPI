@@ -15,6 +15,7 @@ export ESPEAK_DATA_PATH=/usr/lib/x86_64-linux-gnu/espeak-ng-data
 
 # Run FastAPI with CPU extras using uv run
 # Note: espeak may still require manual installation,
+uv venv --allow-existing
 uv pip install -e ".[cpu]"
 uv run --no-sync python docker/scripts/download_model.py --output api/src/models/v1_0
 
