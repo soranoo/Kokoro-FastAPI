@@ -32,39 +32,46 @@ dependencies = [
     "mutagen>=1.47.0",
     "psutil>=6.1.1",
     "espeakng-loader==0.2.4",
-    "kokoro==0.9.2",
-    "misaki[en,ja,ko,zh]==0.9.3",
+    "kokoro==0.9.4",
+    "misaki[en,ja,ko,zh]==0.9.4",
     "spacy==3.8.5",
     "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
     "inflect>=7.5.0",
     "phonemizer-fork>=3.3.2",
     "av>=14.2.0",
     "text2num>=2.5.1",
+    "nvidia-cublas-cu12>=12.6.4.1",
+    "nvidia-cuda-cupti-cu12>=12.6.80",
+    "nvidia-cuda-nvrtc-cu12>=12.6.77",
+    "nvidia-cuda-runtime-cu12>=12.6.77",
+    "nvidia-cudnn-cu12>=9.5.1.17",
+    "nvidia-cufft-cu12>=11.3.0.4",
+    "nvidia-cufile-cu12>=1.11.1.6",
+    "nvidia-curand-cu12>=10.3.7.77",
+    "nvidia-cusolver-cu12>=11.7.1.2",
+    "nvidia-cusparse-cu12>=12.5.4.2",
+    "nvidia-cusparselt-cu12>=0.6.3",
+    "nvidia-nccl-cu12>=2.26.2",
+    "nvidia-nvjitlink-cu12>=12.6.85",
+    "nvidia-nvtx-cu12>=12.6.77",
+    "torchvision>=0.22.1",
+    "triton>=3.3.1",
 ]
 
 [project.optional-dependencies]
-gpu = [
-    "torch==2.7.1+cu128",
-]
-cpu = [
-    "torch==2.7.1",
-]
+gpu = ["torch==2.7.1+cu128"]
+cpu = ["torch==2.7.1"]
 test = [
     "pytest==8.3.5",
     "pytest-cov==6.0.0",
     "httpx==0.26.0",
     "pytest-asyncio==0.25.3",
     "tomli>=2.0.1",
-    "jinja2>=3.1.6"
+    "jinja2>=3.1.6",
 ]
 
 [tool.uv]
-conflicts = [
-    [
-        { extra = "cpu" },
-        { extra = "gpu" },
-    ],
-]
+conflicts = [[{ extra = "cpu" }, { extra = "gpu" }]]
 
 [tool.uv.sources]
 torch = [
@@ -87,11 +94,11 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-package-dir = {"" = "api/src"}
-packages.find = {where = ["api/src"], namespaces = true}
+package-dir = { "" = "api/src" }
+packages.find = { where = ["api/src"], namespaces = true }
 
 [tool.pytest.ini_options]
 testpaths = ["api/tests", "ui/tests"]
 python_files = ["test_*.py"]
-addopts = "--cov=api --cov=ui --cov-report=term-missing --cov-config=.coveragerc --full-trace" 
+addopts = "--cov=api --cov=ui --cov-report=term-missing --cov-config=.coveragerc --full-trace"
 asyncio_mode = "auto"
