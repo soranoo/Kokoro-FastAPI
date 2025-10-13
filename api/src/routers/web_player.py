@@ -15,7 +15,19 @@ router = APIRouter(
 
 @router.get("/{filename:path}")
 async def serve_web_file(filename: str):
-    """Serve web player static files asynchronously."""
+    """Serve web player static files asynchronously
+    
+    Serves static files for the web-based TTS player interface.
+    
+    Args:
+        filename: Path to the static file to serve
+        
+    Returns:
+        Response with the requested file content and appropriate content type
+        
+    Raises:
+        HTTPException: If web player is disabled or file not found
+    """
     if not settings.enable_web_player:
         raise HTTPException(status_code=404, detail="Web player is disabled")
 

@@ -28,7 +28,7 @@ from ..structures.text_schemas import (
 )
 from .openai_compatible import process_and_validate_voices, stream_audio_chunks
 
-router = APIRouter(tags=["text processing"])
+router = APIRouter(tags=["Development"])
 
 
 async def get_tts_service() -> TTSService:
@@ -41,12 +41,17 @@ async def get_tts_service() -> TTSService:
 @router.post("/dev/phonemize", response_model=PhonemeResponse)
 async def phonemize_text(request: PhonemeRequest) -> PhonemeResponse:
     """Convert text to phonemes using Kokoro's quiet mode.
+    
+    Converts input text into phonetic representation using Kokoro's phonemization engine.
 
     Args:
-        request: Request containing text and language
+        request: Request containing text and language code
 
     Returns:
-        Phonemes and token IDs
+        PhonemeResponse with phonemes and token IDs
+        
+    Raises:
+        HTTPException: If text is empty or phoneme generation fails
     """
     try:
         if not request.text:
@@ -81,7 +86,21 @@ async def generate_from_phonemes(
     client_request: Request,
     tts_service: TTSService = Depends(get_tts_service),
 ) -> StreamingResponse:
-    """Generate audio directly from phonemes using Kokoro's phoneme format"""
+    """Generate audio directly from phonemes using Kokoro's phoneme format
+    
+    Creates speech audio directly from phonetic input, bypassing text normalization.
+    
+    Args:
+        request: Request with phonemes, voice, and output format
+        client_request: FastAPI request object
+        tts_service: TTS service dependency
+        
+    Returns:
+        StreamingResponse with audio data
+        
+    Raises:
+        HTTPException: If phonemes invalid or generation fails
+    """
     try:
         # Basic validation
         if not isinstance(request.phonemes, str):
@@ -165,7 +184,22 @@ async def create_captioned_speech(
     x_raw_response: str = Header(None, alias="x-raw-response"),
     tts_service: TTSService = Depends(get_tts_service),
 ):
-    """Generate audio with word-level timestamps using streaming approach"""
+    """Generate audio with word-level timestamps using streaming approach
+    
+    Creates speech audio with synchronized word-level timestamps for captioning/subtitles.
+    
+    Args:
+        request: Request with text, voice, format, and timestamp options
+        client_request: FastAPI request object
+        x_raw_response: Optional header for raw response format
+        tts_service: TTS service dependency
+        
+    Returns:
+        StreamingResponse or Response with audio and timestamp data
+        
+    Raises:
+        HTTPException: If validation or processing fails
+    """
 
     try:
         # model_name = get_model_name(request.model)

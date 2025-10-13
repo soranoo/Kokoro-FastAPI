@@ -11,7 +11,7 @@ from urllib import response
 import aiofiles
 import numpy as np
 import torch
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
+from fastapi import APIRouter, Header, HTTPException, Request, Response
 from fastapi.responses import FileResponse, StreamingResponse
 from loguru import logger
 
@@ -177,7 +177,21 @@ async def create_speech(
     client_request: Request,
     x_raw_response: str = Header(None, alias="x-raw-response"),
 ):
-    """OpenAI-compatible endpoint for text-to-speech"""
+    """OpenAI-compatible endpoint for text-to-speech
+    
+    Generate speech audio from text using the Kokoro TTS model.
+    
+    Args:
+        request: Speech generation request with text, voice, and output format
+        client_request: FastAPI request object
+        x_raw_response: Optional header for raw response format
+        
+    Returns:
+        Audio file in requested format (streaming or complete)
+        
+    Raises:
+        HTTPException: For validation, processing, or authentication errors
+    """
     # Validate model before processing request
     if request.model not in _openai_mappings["models"]:
         raise HTTPException(
@@ -413,7 +427,17 @@ async def create_speech(
 
 @router.get("/download/{filename}")
 async def download_audio_file(filename: str):
-    """Download a generated audio file from temp storage"""
+    """Download a generated audio file from temp storage
+    
+    Args:
+        filename: Name of the audio file to download
+        
+    Returns:
+        FileResponse with the audio file
+        
+    Raises:
+        HTTPException: If file not found or server error
+    """
     try:
         from ..core.paths import _find_file, get_content_type
 
@@ -449,7 +473,16 @@ async def download_audio_file(filename: str):
 
 @router.get("/models")
 async def list_models():
-    """List all available models"""
+    """List all available TTS models
+    
+    Returns a list of available text-to-speech models compatible with OpenAI's format.
+    
+    Returns:
+        Dictionary with list of model objects
+        
+    Raises:
+        HTTPException: If server error occurs
+    """
     try:
         # Create standard model list
         models = [
@@ -488,7 +521,17 @@ async def list_models():
 
 @router.get("/models/{model}")
 async def retrieve_model(model: str):
-    """Retrieve a specific model"""
+    """Retrieve information about a specific TTS model
+    
+    Args:
+        model: Model ID to retrieve (e.g., 'tts-1', 'tts-1-hd', 'kokoro')
+        
+    Returns:
+        Model information object
+        
+    Raises:
+        HTTPException: If model not found or server error
+    """
     try:
         # Define available models
         models = {
@@ -541,7 +584,16 @@ async def retrieve_model(model: str):
 
 @router.get("/audio/voices")
 async def list_voices():
-    """List all available voices for text-to-speech"""
+    """List all available voices for text-to-speech
+    
+    Returns a list of all voice names available for speech generation.
+    
+    Returns:
+        Dictionary containing list of available voice names
+        
+    Raises:
+        HTTPException: If server error occurs
+    """
     try:
         tts_service = await get_tts_service()
         voices = await tts_service.list_voices()
@@ -561,6 +613,8 @@ async def list_voices():
 @router.post("/audio/voices/combine")
 async def combine_voices(request: Union[str, List[str]]):
     """Combine multiple voices into a new voice and return the .pt file.
+    
+    Merges multiple voice models into a single combined voice file.
 
     Args:
         request: Either a string with voices separated by + (e.g. "voice1+voice2")
@@ -572,6 +626,7 @@ async def combine_voices(request: Union[str, List[str]]):
     Raises:
         HTTPException:
             - 400: Invalid request (wrong number of voices, voice not found)
+            - 403: Permission denied (local voice saving disabled)
             - 500: Server error (file system issues, combination failed)
     """
     # Check if local voice saving is allowed

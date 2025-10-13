@@ -13,11 +13,19 @@ try:
 except ImportError:
     GPU_AVAILABLE = False
 
-router = APIRouter(tags=["debug"])
+router = APIRouter(tags=["Debug"])
 
 
 @router.get("/debug/threads")
 async def get_thread_info():
+    """Get information about active threads in the application
+    
+    Args:
+        authenticated: Authentication dependency
+        
+    Returns:
+        Dictionary with thread count, names, and details
+    """
     process = psutil.Process()
     current_threads = threading.enumerate()
 
@@ -43,6 +51,14 @@ async def get_thread_info():
 
 @router.get("/debug/storage")
 async def get_storage_info():
+    """Get information about disk storage and partitions
+    
+    Args:
+        authenticated: Authentication dependency
+        
+    Returns:
+        Dictionary with storage information for all accessible partitions
+    """
     # Get disk partitions
     partitions = psutil.disk_partitions()
     storage_info = []
@@ -69,6 +85,14 @@ async def get_storage_info():
 
 @router.get("/debug/system")
 async def get_system_info():
+    """Get comprehensive system information including CPU, memory, and GPU
+    
+    Args:
+        authenticated: Authentication dependency
+        
+    Returns:
+        Dictionary with CPU, memory, process, network, and GPU information
+    """
     process = psutil.Process()
 
     # CPU Info
@@ -153,7 +177,14 @@ async def get_system_info():
 
 @router.get("/debug/session_pools")
 async def get_session_pool_info():
-    """Get information about ONNX session pools."""
+    """Get information about ONNX session pools
+    
+    Args:
+        authenticated: Authentication dependency
+        
+    Returns:
+        Dictionary with CPU and GPU session pool information
+    """
     from ..inference.model_manager import get_manager
 
     manager = await get_manager()

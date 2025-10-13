@@ -9,6 +9,13 @@ class Settings(BaseSettings):
     api_version: str = "1.0.0"
     host: str = "0.0.0.0"
     port: int = 8880
+    
+    # Security Settings
+    hide_server_header: bool = True  # Hide server header from responses
+    api_bearer_token: str | None = None  # Optional Bearer token for authentication
+    
+    # API Documentation Settings
+    enable_openapi_docs: bool = True  # Whether to enable OpenAPI documentation (/docs, /redoc, /openapi.json)
 
     # Application Settings
     output_dir: str = "output"

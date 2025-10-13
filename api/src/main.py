@@ -14,6 +14,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
 from .core.config import settings
+from .core.middleware import (
+    BearerAuthMiddleware,
+    DisabledEndpointsMiddleware,
+)
 from .routers.debug import router as debug_router
 from .routers.development import router as dev_router
 from .routers.openai_compatible import router as openai_router
@@ -93,14 +97,29 @@ async def lifespan(app: FastAPI):
         startup_msg += "\nRunning on CPU"
     startup_msg += f"\n{voicepack_count} voice packs loaded"
 
+    # Add security info
+    if settings.api_bearer_token:
+        startup_msg += "\n\n🔒 Authentication: ENABLED (Bearer token required)"
+    else:
+        startup_msg += "\n\n🔓 Authentication: DISABLED (Open access)"
+    
+    if settings.hide_server_header:
+        startup_msg += "\n🛡️  Server header: HIDDEN"
+
+    # Add OpenAPI docs info
+    if settings.enable_openapi_docs:
+        startup_msg += f"\n📚 API Docs: http://localhost:{settings.port}/docs"
+    else:
+        startup_msg += "\n📚 API Docs: DISABLED"
+
     # Add web player info if enabled
     if settings.enable_web_player:
         startup_msg += (
-            f"\n\nBeta Web Player: http://{settings.host}:{settings.port}/web/"
+            f"\n🎵 Web Player: http://{settings.host}:{settings.port}/web/"
         )
-        startup_msg += f"\nor http://localhost:{settings.port}/web/"
+        startup_msg += f"\n   or http://localhost:{settings.port}/web/"
     else:
-        startup_msg += "\n\nWeb Player: disabled"
+        startup_msg += "\n🎵 Web Player: DISABLED"
 
     startup_msg += f"\n{boundary}\n"
     logger.info(startup_msg)
@@ -114,10 +133,22 @@ app = FastAPI(
     description=settings.api_description,
     version=settings.api_version,
     lifespan=lifespan,
-    openapi_url="/openapi.json",  # Explicitly enable OpenAPI schema
+    # Conditionally enable/disable OpenAPI documentation
+    openapi_url="/openapi.json" if settings.enable_openapi_docs else None,
+    docs_url="/docs" if settings.enable_openapi_docs else None,
+    redoc_url="/redoc" if settings.enable_openapi_docs else None,
 )
 
-# Add CORS middleware if enabled
+# Add custom middleware (order matters: last added = first executed)
+# 1. Disabled endpoints check (executes first)
+app.add_middleware(DisabledEndpointsMiddleware)
+
+# 2. Authentication middleware
+app.add_middleware(BearerAuthMiddleware)
+
+
+
+# 3. CORS middleware if enabled
 if settings.cors_enabled:
     app.add_middleware(
         CORSMiddleware,
@@ -136,17 +167,29 @@ if settings.enable_web_player:
 
 
 # Health check endpoint
-@app.get("/health")
+@app.get("/health", tags=["Health"])
 async def health_check():
-    """Health check endpoint"""
+    """Health check endpoint
+    
+    Returns the health status of the API service.
+    
+    Returns:
+        Dictionary with status field indicating service health
+    """
     return {"status": "healthy"}
 
 
-@app.get("/v1/test")
+@app.get("/v1/test", tags=["Testing"])
 async def test_endpoint():
-    """Test endpoint to verify routing"""
+    """Test endpoint to verify routing
+    
+    Simple test endpoint to verify that the API routing is working correctly.
+    
+    Returns:
+        Dictionary with status field
+    """
     return {"status": "ok"}
 
 
 if __name__ == "__main__":
-    uvicorn.run("api.src.main:app", host=settings.host, port=settings.port, reload=True)
+    uvicorn.run("api.src.main:app", host=settings.host, port=settings.port, reload=True, server_header=not settings.hide_server_header)
