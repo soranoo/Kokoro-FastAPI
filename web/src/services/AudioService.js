@@ -57,7 +57,8 @@ export class AudioService {
             // Check for download path as soon as we get the response
             const downloadPath = response.headers.get('x-download-path');
             if (downloadPath) {
-                this.serverDownloadPath = `/v1${downloadPath}`;
+                // Server now returns full URL, no need to prepend /v1
+                this.serverDownloadPath = downloadPath;
                 console.log('Download path received:', this.serverDownloadPath);
             }
 
@@ -124,8 +125,8 @@ export class AudioService {
                     
                     const downloadPath = headers['x-download-path'];
                     if (downloadPath) {
-                        // Prepend /v1 since the router is mounted there
-                        this.serverDownloadPath = `/v1${downloadPath}`;
+                        // Server now returns full URL, no need to prepend /v1
+                        this.serverDownloadPath = downloadPath;
                         console.log('Download path received:', this.serverDownloadPath);
                     } else {
                         console.warn('No X-Download-Path header found. Available headers:',

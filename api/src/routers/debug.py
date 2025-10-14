@@ -6,6 +6,13 @@ import psutil
 import torch
 from fastapi import APIRouter
 
+from ..structures.schemas import (
+    SessionPoolsResponse,
+    StorageResponse,
+    SystemResponse,
+    ThreadsResponse,
+)
+
 try:
     import GPUtil
 
@@ -16,8 +23,8 @@ except ImportError:
 router = APIRouter(tags=["Debug"])
 
 
-@router.get("/debug/threads")
-async def get_thread_info():
+@router.get("/debug/threads", response_model=ThreadsResponse)
+async def get_thread_info() -> ThreadsResponse:
     """Get information about active threads in the application
     
     Args:
@@ -40,13 +47,13 @@ async def get_thread_info():
         }
         thread_details.append(thread_info)
 
-    return {
-        "total_threads": process.num_threads(),
-        "active_threads": len(current_threads),
-        "thread_names": [t.name for t in current_threads],
-        "thread_details": thread_details,
-        "memory_mb": process.memory_info().rss / 1024 / 1024,
-    }
+    return ThreadsResponse(
+        total_threads=process.num_threads(),
+        active_threads=len(current_threads),
+        thread_names=[t.name for t in current_threads],
+        thread_details=thread_details,
+        memory_mb=process.memory_info().rss / 1024 / 1024,
+    )
 
 
 @router.get("/debug/storage")

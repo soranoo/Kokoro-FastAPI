@@ -104,6 +104,137 @@ def test_retrieve_model(mock_openai_mappings):
     assert data["owned_by"] == "kokoro"
     assert "created" in data
 
+    # Test model not found
+    response = client.get("/v1/models/nonexistent")
+    assert response.status_code == 404
+    assert "error" in response.json()
+
+
+def test_url_prefix_configuration():
+    """Test that URL prefix configuration works"""
+    from api.src.core.config import settings
+    
+    # Save original value
+    original_prefix = settings.api_url_prefix
+    
+    try:
+        # Test with empty prefix (default)
+        assert settings.api_url_prefix == ""
+        
+        # URLs should work with /v1 prefix
+        response = client.get("/v1/models")
+        assert response.status_code == 200
+    finally:
+        # Restore original value
+        settings.api_url_prefix = original_prefix
+
+
+def test_server_base_url_configuration():
+    """Test that server base URL configuration works"""
+    from api.src.core.config import settings
+    
+    # Test default base URL construction
+    base_url = settings.get_base_url()
+    assert base_url.startswith("http://")
+    assert ":" in base_url  # Should include port
+    
+    # Test with custom server_base_url
+    original_value = settings.server_base_url
+    try:
+        settings.server_base_url = "https://example.com"
+        assert settings.get_base_url() == "https://example.com"
+        
+        settings.server_base_url = "https://example.com/"
+        assert settings.get_base_url() == "https://example.com"  # Should strip trailing slash
+    finally:
+        settings.server_base_url = original_value
+
+
+def test_authentication_disabled_by_default():
+    """Test that authentication is disabled by default"""
+    from api.src.core.config import settings
+    
+    # Save original value
+    original_token = settings.api_bearer_token
+    
+    try:
+        settings.api_bearer_token = None
+        
+        # Should be able to access endpoints without auth
+        response = client.get("/v1/models")
+        assert response.status_code == 200
+    finally:
+        settings.api_bearer_token = original_token
+
+
+def test_feature_control_openapi_docs():
+    """Test that OpenAPI docs can be enabled/disabled"""
+    from api.src.core.config import settings
+    
+    # Save original value
+    original_value = settings.enable_openapi_docs
+    
+    try:
+        # Test with docs enabled
+        settings.enable_openapi_docs = True
+        assert settings.enable_openapi_docs is True
+        
+        # Test with docs disabled
+        settings.enable_openapi_docs = False
+        assert settings.enable_openapi_docs is False
+    finally:
+        settings.enable_openapi_docs = original_value
+
+
+def test_feature_control_web_player():
+    """Test that web player can be enabled/disabled"""
+    from api.src.core.config import settings
+    
+    # Save original value
+    original_value = settings.enable_web_player
+    
+    try:
+        # Test with web player enabled
+        settings.enable_web_player = True
+        assert settings.enable_web_player is True
+        
+        # Test with web player disabled
+        settings.enable_web_player = False
+        assert settings.enable_web_player is False
+    finally:
+        settings.enable_web_player = original_value
+
+
+def test_response_model_validation():
+    """Test that response models are properly validated"""
+    # Test models list response
+    response = client.get("/v1/models")
+    assert response.status_code == 200
+    data = response.json()
+    assert "object" in data
+    assert "data" in data
+    assert isinstance(data["data"], list)
+    
+    # Validate model object structure
+    if data["data"]:
+        model = data["data"][0]
+        assert "id" in model
+        assert "object" in model
+        assert "created" in model
+        assert "owned_by" in model
+
+
+def test_retrieve_model(mock_openai_mappings):
+    """Test retrieving a specific model endpoint"""
+    # Test successful model retrieval
+    response = client.get("/v1/models/tts-1")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["id"] == "tts-1"
+    assert data["object"] == "model"
+    assert data["owned_by"] == "kokoro"
+    assert "created" in data
+
     # Test non-existent model
     response = client.get("/v1/models/nonexistent-model")
     assert response.status_code == 404

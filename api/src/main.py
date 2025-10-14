@@ -24,6 +24,9 @@ from .routers.openai_compatible import router as openai_router
 from .routers.web_player import router as web_router
 
 
+from .structures.schemas import HealthCheckResponse, TestEndpointResponse
+
+
 def setup_logger():
     """Configure loguru logger with custom formatting"""
     config = {
@@ -159,16 +162,16 @@ if settings.cors_enabled:
     )
 
 # Include routers
-app.include_router(openai_router, prefix="/v1")
-app.include_router(dev_router)  # Development endpoints
-app.include_router(debug_router)  # Debug endpoints
+app.include_router(openai_router, prefix=f"{settings.api_url_prefix}/v1")
+app.include_router(dev_router, prefix=settings.api_url_prefix)  # Development endpoints
+app.include_router(debug_router, prefix=settings.api_url_prefix)  # Debug endpoints
 if settings.enable_web_player:
-    app.include_router(web_router, prefix="/web")  # Web player static files
+    app.include_router(web_router, prefix=f"{settings.api_url_prefix}/web")  # Web player static files
 
 
 # Health check endpoint
-@app.get("/health", tags=["Health"])
-async def health_check():
+@app.get("/health", tags=["Health"], response_model=HealthCheckResponse)
+async def health_check() -> HealthCheckResponse:
     """Health check endpoint
     
     Returns the health status of the API service.
@@ -176,11 +179,11 @@ async def health_check():
     Returns:
         Dictionary with status field indicating service health
     """
-    return {"status": "healthy"}
+    return HealthCheckResponse(status="healthy")
 
 
-@app.get("/v1/test", tags=["Testing"])
-async def test_endpoint():
+@app.get(f"{settings.api_url_prefix}/v1/test", tags=["Testing"], response_model=TestEndpointResponse)
+async def test_endpoint() -> TestEndpointResponse:
     """Test endpoint to verify routing
     
     Simple test endpoint to verify that the API routing is working correctly.
@@ -188,7 +191,7 @@ async def test_endpoint():
     Returns:
         Dictionary with status field
     """
-    return {"status": "ok"}
+    return TestEndpointResponse(status="ok")
 
 
 if __name__ == "__main__":

@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     api_version: str = "1.0.0"
     host: str = "0.0.0.0"
     port: int = 8880
+    api_url_prefix: str = ""  # Optional URL prefix for all routes (e.g., "/api", "/v2")
+    server_base_url: str | None = None  # Base URL for generating full download links (e.g., "http://localhost:8880")
     
     # Security Settings
     hide_server_header: bool = True  # Hide server header from responses
@@ -88,6 +90,19 @@ class Settings(BaseSettings):
         elif torch.cuda.is_available():
             return "cuda"
         return "cpu"
+
+    def get_base_url(self) -> str:
+        """Get the base URL for generating full download links
+        
+        Returns the configured server_base_url or constructs one from host:port
+        """
+        if self.server_base_url:
+            return self.server_base_url.rstrip("/")
+        
+        # Construct from host and port
+        # Use localhost if host is 0.0.0.0
+        host_for_url = "localhost" if self.host == "0.0.0.0" else self.host
+        return f"http://{host_for_url}:{self.port}"
 
 
 settings = Settings()

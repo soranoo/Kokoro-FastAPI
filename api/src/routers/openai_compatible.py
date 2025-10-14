@@ -21,7 +21,13 @@ from ..services.audio import AudioService
 from ..services.streaming_audio_writer import StreamingAudioWriter
 from ..services.tts_service import TTSService
 from ..structures import OpenAISpeechRequest
-from ..structures.schemas import CaptionedSpeechRequest
+from ..structures.schemas import (
+    CaptionedSpeechRequest,
+    ErrorResponse,
+    ModelObject,
+    ModelsListResponse,
+    VoicesListResponse,
+)
 
 
 # Load OpenAI mappings
@@ -238,6 +244,9 @@ async def create_speech(
 
                 # Get download path immediately after temp file creation
                 download_path = temp_writer.download_path
+                
+                # Construct full URL with base URL and prefix
+                full_download_url = f"{settings.get_base_url()}{settings.api_url_prefix}/v1{download_path}"
 
                 # Create response headers with download path
                 headers = {
@@ -245,7 +254,7 @@ async def create_speech(
                     "X-Accel-Buffering": "no",
                     "Cache-Control": "no-cache",
                     "Transfer-Encoding": "chunked",
-                    "X-Download-Path": download_path,
+                    "X-Download-Path": full_download_url,
                 }
 
                 # Add header to indicate if temp file writing is available
@@ -347,7 +356,7 @@ async def create_speech(
 
                 # Get download path immediately after temp file creation
                 download_path = temp_writer.download_path
-                headers["X-Download-Path"] = download_path
+                headers["X-Download-Path"] = f"{settings.get_base_url()}{settings.api_url_prefix}/v1{download_path}"
 
                 try:
                     # Write chunks to temp file
@@ -471,8 +480,8 @@ async def download_audio_file(filename: str):
         )
 
 
-@router.get("/models")
-async def list_models():
+@router.get("/models", response_model=ModelsListResponse)
+async def list_models() -> ModelsListResponse:
     """List all available TTS models
     
     Returns a list of available text-to-speech models compatible with OpenAI's format.
@@ -486,27 +495,27 @@ async def list_models():
     try:
         # Create standard model list
         models = [
-            {
-                "id": "tts-1",
-                "object": "model",
-                "created": 1686935002,
-                "owned_by": "kokoro",
-            },
-            {
-                "id": "tts-1-hd",
-                "object": "model",
-                "created": 1686935002,
-                "owned_by": "kokoro",
-            },
-            {
-                "id": "kokoro",
-                "object": "model",
-                "created": 1686935002,
-                "owned_by": "kokoro",
-            },
+            ModelObject(
+                id="tts-1",
+                object="model",
+                created=1686935002,
+                owned_by="kokoro",
+            ),
+            ModelObject(
+                id="tts-1-hd",
+                object="model",
+                created=1686935002,
+                owned_by="kokoro",
+            ),
+            ModelObject(
+                id="kokoro",
+                object="model",
+                created=1686935002,
+                owned_by="kokoro",
+            ),
         ]
 
-        return {"object": "list", "data": models}
+        return ModelsListResponse(object="list", data=models)
     except Exception as e:
         logger.error(f"Error listing models: {str(e)}")
         raise HTTPException(
@@ -519,8 +528,8 @@ async def list_models():
         )
 
 
-@router.get("/models/{model}")
-async def retrieve_model(model: str):
+@router.get("/models/{model}", response_model=ModelObject)
+async def retrieve_model(model: str) -> ModelObject:
     """Retrieve information about a specific TTS model
     
     Args:
@@ -535,24 +544,24 @@ async def retrieve_model(model: str):
     try:
         # Define available models
         models = {
-            "tts-1": {
-                "id": "tts-1",
-                "object": "model",
-                "created": 1686935002,
-                "owned_by": "kokoro",
-            },
-            "tts-1-hd": {
-                "id": "tts-1-hd",
-                "object": "model",
-                "created": 1686935002,
-                "owned_by": "kokoro",
-            },
-            "kokoro": {
-                "id": "kokoro",
-                "object": "model",
-                "created": 1686935002,
-                "owned_by": "kokoro",
-            },
+            "tts-1": ModelObject(
+                id="tts-1",
+                object="model",
+                created=1686935002,
+                owned_by="kokoro",
+            ),
+            "tts-1-hd": ModelObject(
+                id="tts-1-hd",
+                object="model",
+                created=1686935002,
+                owned_by="kokoro",
+            ),
+            "kokoro": ModelObject(
+                id="kokoro",
+                object="model",
+                created=1686935002,
+                owned_by="kokoro",
+            ),
         }
 
         # Check if requested model exists
@@ -582,8 +591,8 @@ async def retrieve_model(model: str):
         )
 
 
-@router.get("/audio/voices")
-async def list_voices():
+@router.get("/audio/voices", response_model=VoicesListResponse)
+async def list_voices() -> VoicesListResponse:
     """List all available voices for text-to-speech
     
     Returns a list of all voice names available for speech generation.
@@ -597,7 +606,7 @@ async def list_voices():
     try:
         tts_service = await get_tts_service()
         voices = await tts_service.list_voices()
-        return {"voices": voices}
+        return VoicesListResponse(voices=voices)
     except Exception as e:
         logger.error(f"Error listing voices: {str(e)}")
         raise HTTPException(

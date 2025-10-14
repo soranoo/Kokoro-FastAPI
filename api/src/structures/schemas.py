@@ -123,6 +123,119 @@ class OpenAISpeechRequest(BaseModel):
     )
 
 
+# Response Models for OpenAPI type safety
+
+
+class ModelObject(BaseModel):
+    """Model object schema"""
+
+    id: str = Field(..., description="Model identifier")
+    object: str = Field(default="model", description="Object type")
+    created: int = Field(..., description="Unix timestamp of model creation")
+    owned_by: str = Field(..., description="Organization that owns the model")
+
+
+class ModelsListResponse(BaseModel):
+    """Response schema for models list endpoint"""
+
+    object: str = Field(default="list", description="Object type")
+    data: List[ModelObject] = Field(..., description="List of available models")
+
+
+class VoicesListResponse(BaseModel):
+    """Response schema for voices list endpoint"""
+
+    voices: List[str] = Field(..., description="List of available voice names")
+
+
+class HealthCheckResponse(BaseModel):
+    """Response schema for health check endpoint"""
+
+    status: str = Field(..., description="Health status of the API")
+
+
+class TestEndpointResponse(BaseModel):
+    """Response schema for test endpoint"""
+
+    status: str = Field(..., description="Test endpoint status")
+
+
+class ErrorResponse(BaseModel):
+    """Generic error response schema"""
+
+    error: str = Field(..., description="Error code")
+    message: str = Field(..., description="Error message")
+    type: str = Field(..., description="Error type")
+
+
+class ThreadInfo(BaseModel):
+    """Thread information schema"""
+
+    name: str = Field(..., description="Thread name")
+    id: int = Field(..., description="Thread identifier")
+    alive: bool = Field(..., description="Whether thread is alive")
+    daemon: bool = Field(..., description="Whether thread is daemon")
+
+
+class ThreadsResponse(BaseModel):
+    """Response schema for threads debug endpoint"""
+
+    total_threads: int = Field(..., description="Total number of threads")
+    active_threads: int = Field(..., description="Number of active threads")
+    thread_names: List[str] = Field(..., description="List of thread names")
+    thread_details: List[ThreadInfo] = Field(..., description="Detailed thread information")
+    memory_mb: float = Field(..., description="Memory usage in MB")
+
+
+class StorageInfo(BaseModel):
+    """Storage directory information schema"""
+
+    path: str = Field(..., description="Directory path")
+    exists: bool = Field(..., description="Whether directory exists")
+    total_files: int = Field(..., description="Total number of files")
+    total_size_mb: float = Field(..., description="Total size in MB")
+    oldest_file_age_hours: float | None = Field(..., description="Age of oldest file in hours")
+
+
+class StorageResponse(BaseModel):
+    """Response schema for storage debug endpoint"""
+
+    temp_dir: StorageInfo = Field(..., description="Temporary directory information")
+    output_dir: StorageInfo = Field(..., description="Output directory information")
+
+
+class GPUInfo(BaseModel):
+    """GPU information schema"""
+
+    id: int = Field(..., description="GPU identifier")
+    name: str = Field(..., description="GPU name")
+    memory_total: float = Field(..., description="Total memory in MB")
+    memory_used: float = Field(..., description="Used memory in MB")
+    memory_free: float = Field(..., description="Free memory in MB")
+    memory_percent: float = Field(..., description="Memory usage percentage")
+    gpu_util: float = Field(..., description="GPU utilization percentage")
+    temperature: float = Field(..., description="GPU temperature in Celsius")
+
+
+class SystemResponse(BaseModel):
+    """Response schema for system debug endpoint"""
+
+    cpu_percent: float = Field(..., description="CPU usage percentage")
+    memory_percent: float = Field(..., description="Memory usage percentage")
+    memory_available_mb: float = Field(..., description="Available memory in MB")
+    memory_used_mb: float = Field(..., description="Used memory in MB")
+    disk_percent: float = Field(..., description="Disk usage percentage")
+    disk_free_gb: float = Field(..., description="Free disk space in GB")
+    gpu_available: bool = Field(..., description="Whether GPU is available")
+    gpus: List[GPUInfo] | None = Field(default=None, description="List of GPU information")
+
+
+class SessionPoolsResponse(BaseModel):
+    """Response schema for session pools debug endpoint"""
+
+    message: str = Field(..., description="Status message")
+
+
 class CaptionedSpeechRequest(BaseModel):
     """Request schema for captioned speech endpoint"""
 

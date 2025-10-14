@@ -513,6 +513,134 @@ Monitor system state and resource usage with these endpoints:
 Useful for debugging resource exhaustion or performance issues.
 </details>
 
+## Configuration
+
+<details>
+<summary>Environment Variables</summary>
+
+The API can be configured using environment variables. Create a `.env` file in your project root or set these variables in your environment:
+
+### Security Settings
+
+```env
+# Hide the server header from HTTP responses (default: true)
+HIDE_SERVER_HEADER=true
+
+# Optional Bearer token for API authentication
+# If set, all API requests must include "Authorization: Bearer <token>" header
+# Leave empty or unset to disable authentication (default: disabled)
+API_BEARER_TOKEN=your-secret-token-here
+```
+
+**When to use authentication:**
+- Production deployments
+- Public-facing APIs
+- Multi-tenant environments
+
+### API Documentation
+
+```env
+# Enable OpenAPI documentation endpoints (/docs, /redoc, /openapi.json)
+# Set to false to disable API documentation (default: true)
+ENABLE_OPENAPI_DOCS=true
+```
+
+**Affects:**
+- `/docs` - Swagger UI
+- `/redoc` - ReDoc documentation
+- `/openapi.json` - OpenAPI schema
+
+**When to disable:**
+- Production environments where you don't want to expose API structure
+- Internal APIs that don't need public documentation
+- Security-focused deployments
+
+### URL Configuration
+
+```env
+# Optional URL prefix for all API routes (e.g., "/api" or "/v2")
+# Leave empty for no prefix (default: empty)
+API_URL_PREFIX=
+
+# Base URL for generating full download links (e.g., "http://localhost:8880" or "https://yourdomain.com")
+# If not set, will be constructed from HOST and PORT (default: http://localhost:8880)
+SERVER_BASE_URL=
+```
+
+**Use cases:**
+- API versioning (e.g., `/api/v1` or `/api/v2`)
+- Reverse proxy setups
+- Custom domain configurations
+- Multi-tenant deployments
+
+### Web Player
+
+```env
+# Enable the web-based TTS player interface (default: true)
+ENABLE_WEB_PLAYER=true
+```
+
+**When to disable:**
+- API-only deployments
+- When you have a separate frontend
+- Reduce attack surface in production
+
+### Common Configuration Examples
+
+**Development:**
+```env
+ENABLE_OPENAPI_DOCS=true
+ENABLE_WEB_PLAYER=true
+API_BEARER_TOKEN=
+HIDE_SERVER_HEADER=true
+```
+
+**Production (Locked Down):**
+```env
+ENABLE_OPENAPI_DOCS=false
+ENABLE_WEB_PLAYER=false
+API_BEARER_TOKEN=your-secret-token
+HIDE_SERVER_HEADER=true
+```
+
+**Production (Public API with Docs):**
+```env
+ENABLE_OPENAPI_DOCS=true
+ENABLE_WEB_PLAYER=false
+API_BEARER_TOKEN=your-secret-token
+HIDE_SERVER_HEADER=true
+```
+
+### API Responses for Disabled Features
+
+When features are disabled, the API returns clear error messages:
+
+**OpenAPI Docs Disabled:**
+```bash
+$ curl http://localhost:8880/docs
+{
+    "error": "not_found",
+    "message": "API documentation is disabled",
+    "type": "feature_disabled"
+}
+```
+
+**Web Player Disabled:**
+```bash
+$ curl http://localhost:8880/web/
+{
+    "error": "not_found",
+    "message": "Web player is disabled",
+    "type": "feature_disabled"
+}
+```
+
+### Additional Configuration
+
+For a complete list of environment variables, see the `.env.example` file or `api/src/core/config.py`.
+
+</details>
+
 ## Known Issues & Troubleshooting
 
 <details>

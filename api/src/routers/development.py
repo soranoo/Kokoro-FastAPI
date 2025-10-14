@@ -233,6 +233,9 @@ async def create_captioned_speech(
 
                 # Get download path immediately after temp file creation
                 download_path = temp_writer.download_path
+                
+                # Construct full URL with base URL and prefix
+                full_download_url = f"{settings.get_base_url()}{settings.api_url_prefix}/v1{download_path}"
 
                 # Create response headers with download path
                 headers = {
@@ -240,7 +243,7 @@ async def create_captioned_speech(
                     "X-Accel-Buffering": "no",
                     "Cache-Control": "no-cache",
                     "Transfer-Encoding": "chunked",
-                    "X-Download-Path": download_path,
+                    "X-Download-Path": full_download_url,
                 }
 
                 # Create async generator for streaming
