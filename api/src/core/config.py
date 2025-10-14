@@ -1,4 +1,5 @@
 import torch
+import redis.asyncio as aioredis
 from pydantic_settings import BaseSettings
 
 
@@ -72,6 +73,17 @@ class Settings(BaseSettings):
     max_temp_dir_size_mb: int = 2048  # Maximum size of temp directory (2GB)
     max_temp_dir_age_hours: int = 1  # Remove temp files older than 1 hour
     max_temp_dir_count: int = 3  # Maximum number of temp files to keep
+    enable_temp_file_system: bool = True  # Enable temp file system (set to false if using Redis)
+    
+    # Redis Settings for Temp File Management
+    redis_host: str | None = None  # Redis host (e.g., localhost)
+    redis_port: int | None = None  # Redis port (e.g., 6379)
+    redis_username: str | None = None  # Optional Redis username for ACL
+    redis_password: str | None = None  # Optional Redis password
+    temp_redis_zset_key: str = "temp_files"  # Redis sorted set key for temp files
+    temp_file_ttl_seconds: int = 3600  # TTL for temp files in seconds (default: 1 hour)
+    temp_redis_cleanup_interval_seconds: int = 60  # Cleanup interval in seconds
+    temp_cleaner_batch_size: int = 100  # Number of files to clean per batch
 
     class Config:
         env_file = ".env"
@@ -103,6 +115,35 @@ class Settings(BaseSettings):
         # Use localhost if host is 0.0.0.0
         host_for_url = "localhost" if self.host == "0.0.0.0" else self.host
         return f"http://{host_for_url}:{self.port}"
+
+    def get_redis_client(self) -> "aioredis.Redis | None":
+        """Get configured Redis client for temp file management
+        
+        Returns None if Redis is not configured or not available
+        """
+        # Require host and port for Redis configuration
+        if not self.redis_host or not self.redis_port:
+            return None
+
+        try:
+            from loguru import logger
+
+            # Build Redis connection kwargs
+            kwargs = {"decode_responses": True}
+
+            # Add username/password if provided
+            if self.redis_username:
+                kwargs["username"] = self.redis_username
+            if self.redis_password:
+                kwargs["password"] = self.redis_password
+
+            # Construct URL from host/port (no DB index by default)
+            redis_url = f"redis://{self.redis_host}:{self.redis_port}"
+            return aioredis.from_url(redis_url, **kwargs)
+        except Exception as e:
+            from loguru import logger
+            logger.error(f"Failed to create Redis client: {e}")
+            return None
 
 
 settings = Settings()

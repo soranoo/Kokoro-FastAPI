@@ -228,7 +228,10 @@ async def create_captioned_speech(
             if request.return_download_link:
                 from ..services.temp_manager import TempFileWriter
 
-                temp_writer = TempFileWriter(request.response_format)
+                # Get Redis client from app state (may be None)
+                redis_client = getattr(client_request.app.state, 'redis', None)
+                
+                temp_writer = TempFileWriter(request.response_format, redis=redis_client)
                 await temp_writer.__aenter__()  # Initialize temp file
 
                 # Get download path immediately after temp file creation

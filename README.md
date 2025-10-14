@@ -637,6 +637,44 @@ $ curl http://localhost:8880/web/
 
 ### Additional Configuration
 
+#### Redis-Based Temp File Management (Optional)
+
+For production deployments or distributed systems, you can use Redis to manage temporary audio files with automatic TTL-based cleanup:
+
+```bash
+# Redis connection (leave empty to use filesystem-based cleanup)
+REDIS_HOST=localhost
+REDIS_PORT=6379
+
+# Optional: Redis ACL authentication
+# REDIS_USERNAME=default
+# REDIS_PASSWORD=your-redis-password
+
+# Temp file TTL (time to live) - files expire after this duration
+TEMP_FILE_TTL_SECONDS=3600  # 1 hour default
+
+# How often Redis checks for expired files
+TEMP_REDIS_CLEANUP_INTERVAL_SECONDS=60  # 1 minute default
+
+# Max files to cleanup per batch
+TEMP_CLEANER_BATCH_SIZE=100
+
+# Enable filesystem cleanup as fallback (disable when using Redis)
+ENABLE_TEMP_FILE_SYSTEM=false
+```
+
+**Benefits of Redis-based cleanup:**
+- Distributed: Works across multiple app instances
+- Reliable: Atomic cleanup operations prevent race conditions
+- Efficient: TTL-based expiration, no filesystem scans needed
+- Fallback: Automatically uses filesystem cleanup if Redis unavailable
+
+**How it works:**
+1. When audio files are created, they're registered in Redis with an expiry timestamp
+2. Background task periodically checks for expired files and deletes them
+3. When downloads start, files are removed from Redis tracking
+4. If Redis is not configured, falls back to filesystem-based cleanup
+
 For a complete list of environment variables, see the `.env.example` file or `api/src/core/config.py`.
 
 </details>

@@ -239,7 +239,11 @@ async def create_speech(
 
                 # Use download_format if specified, otherwise use response_format
                 output_format = request.download_format or request.response_format
-                temp_writer = TempFileWriter(output_format)
+                
+                # Get Redis client from app state (may be None)
+                redis_client = getattr(client_request.app.state, 'redis', None)
+                
+                temp_writer = TempFileWriter(output_format, redis=redis_client)
                 await temp_writer.__aenter__()  # Initialize temp file
 
                 # Get download path immediately after temp file creation
@@ -351,7 +355,11 @@ async def create_speech(
 
                 # Use download_format if specified, otherwise use response_format
                 output_format = request.download_format or request.response_format
-                temp_writer = TempFileWriter(output_format)
+                
+                # Get Redis client from app state (may be None)
+                redis_client = getattr(client_request.app.state, 'redis', None)
+                
+                temp_writer = TempFileWriter(output_format, redis=redis_client)
                 await temp_writer.__aenter__()  # Initialize temp file
 
                 # Get download path immediately after temp file creation
@@ -435,11 +443,12 @@ async def create_speech(
 
 
 @router.get("/download/{filename}")
-async def download_audio_file(filename: str):
+async def download_audio_file(filename: str, request: Request):
     """Download a generated audio file from temp storage
     
     Args:
         filename: Name of the audio file to download
+        request: FastAPI request object for accessing app state
         
     Returns:
         FileResponse with the audio file
@@ -449,11 +458,17 @@ async def download_audio_file(filename: str):
     """
     try:
         from ..core.paths import _find_file, get_content_type
+        from ..services.temp_manager import remove_temp_registration
 
         # Search for file in temp directory
         file_path = await _find_file(
             filename=filename, search_paths=[settings.temp_file_dir]
         )
+
+        # Remove temp file registration from Redis when download starts
+        redis_client = getattr(request.app.state, 'redis', None)
+        if redis_client:
+            await remove_temp_registration(redis_client, file_path)
 
         # Get content type from path helper
         content_type = await get_content_type(file_path)

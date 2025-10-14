@@ -2,6 +2,7 @@
 FastAPI OpenAI Compatible API
 """
 
+import asyncio
 import os
 import sys
 from contextlib import asynccontextmanager
@@ -53,13 +54,37 @@ setup_logger()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Lifespan context manager for model initialization"""
+    """Lifespan context manager for model initialization and Redis cleanup"""
     from .inference.model_manager import get_manager
     from .inference.voice_manager import get_manager as get_voice_manager
-    from .services.temp_manager import cleanup_temp_files
+    from .services.temp_manager import cleanup_temp_files, redis_periodic_cleanup_loop, REDIS_AVAILABLE
 
-    # Clean old temp files on startup
-    await cleanup_temp_files()
+    # Initialize Redis client and cleanup task if configured
+    redis_client = None
+    redis_cleanup_task = None
+    
+    if REDIS_AVAILABLE and settings.redis_host and settings.redis_port:
+        try:
+            redis_client = settings.get_redis_client()
+            await redis_client.ping()
+            logger.info(f"✅ Redis connected: {settings.redis_host}:{settings.redis_port}")
+            
+            # Start background cleanup task
+            redis_cleanup_task = asyncio.create_task(redis_periodic_cleanup_loop(redis_client))
+            logger.info("🔄 Redis temp file cleanup task started")
+        except Exception as e:
+            logger.warning(f"Failed to connect to Redis, falling back to filesystem cleanup: {e}")
+            redis_client = None
+            if redis_cleanup_task:
+                redis_cleanup_task.cancel()
+                redis_cleanup_task = None
+
+    # Clean old temp files on startup (filesystem cleanup if Redis not available)
+    if settings.enable_temp_file_system or not redis_client:
+        await cleanup_temp_files()
+    
+    # Store Redis client in app state for use in endpoints
+    app.state.redis = redis_client
 
     logger.info("Loading TTS model and voice packs...")
 
@@ -123,11 +148,32 @@ async def lifespan(app: FastAPI):
         startup_msg += f"\n   or http://localhost:{settings.port}/web/"
     else:
         startup_msg += "\n🎵 Web Player: DISABLED"
+    
+    # Add temp file management info
+    if redis_client:
+        startup_msg += f"\n🗂️  Temp Files: Redis-managed (TTL: {settings.temp_file_ttl_seconds}s)"
+    elif settings.enable_temp_file_system:
+        startup_msg += "\n🗂️  Temp Files: Filesystem cleanup enabled"
+    else:
+        startup_msg += "\n🗂️  Temp Files: No cleanup configured"
 
     startup_msg += f"\n{boundary}\n"
     logger.info(startup_msg)
 
     yield
+
+    # Shutdown: cleanup Redis resources
+    if redis_cleanup_task:
+        logger.info("Stopping Redis cleanup task...")
+        redis_cleanup_task.cancel()
+        try:
+            await redis_cleanup_task
+        except asyncio.CancelledError:
+            pass
+    
+    if redis_client:
+        logger.info("Closing Redis connection...")
+        await redis_client.close()
 
 
 # Initialize FastAPI app
