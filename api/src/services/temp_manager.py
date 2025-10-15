@@ -60,7 +60,7 @@ async def remove_temp_registration(redis: Optional["aioredis.Redis"], file_path:
         return
     
     try:
-    await redis.zrem(settings.temp_redis_zset_key, file_path)
+        await redis.zrem(settings.temp_redis_zset_key, file_path)
         logger.debug(f"Removed temp file registration from Redis: {file_path}")
     except Exception as e:
         logger.warning(f"Failed to remove temp file from Redis: {e}")
@@ -81,7 +81,7 @@ async def check_file_exists_in_redis(redis: Optional["aioredis.Redis"], file_pat
         return await aiofiles.os.path.exists(file_path)
     
     try:
-    score = await redis.zscore(settings.temp_redis_zset_key, file_path)
+        score = await redis.zscore(settings.temp_redis_zset_key, file_path)
         if score is None:
             logger.debug(f"Temp file not found in Redis: {file_path}")
             return False
