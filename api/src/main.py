@@ -208,11 +208,30 @@ if settings.cors_enabled:
     )
 
 # Include routers
-app.include_router(openai_router, prefix=f"{settings.api_url_prefix}/v1")
-app.include_router(dev_router, prefix=settings.api_url_prefix)  # Development endpoints
-app.include_router(debug_router, prefix=settings.api_url_prefix)  # Debug endpoints
+# Normalize API URL prefix: ensure leading slash and no trailing slash when provided
+raw_prefix = (settings.api_url_prefix or "").strip()
+if raw_prefix:
+    api_prefix = "/" + raw_prefix.strip("/")
+else:
+    api_prefix = ""
+
+# v1 prefix always starts with '/v1' (with optional api_prefix before it)
+prefix_v1 = f"{api_prefix}/v1" if api_prefix else "/v1"
+
+app.include_router(openai_router, prefix=prefix_v1)
+
+# Only pass a prefix for dev/debug routers when an API prefix is configured
+if api_prefix:
+    app.include_router(dev_router, prefix=api_prefix)  # Development endpoints
+    app.include_router(debug_router, prefix=api_prefix)  # Debug endpoints
+else:
+    app.include_router(dev_router)
+    app.include_router(debug_router)
+
 if settings.enable_web_player:
-    app.include_router(web_router, prefix=f"{settings.api_url_prefix}/web")  # Web player static files
+    # web router should be mounted at /web under the api prefix (or at /web if none)
+    prefix_web = f"{api_prefix}/web" if api_prefix else "/web"
+    app.include_router(web_router, prefix=prefix_web)  # Web player static files
 
 
 # Health check endpoint
@@ -228,7 +247,7 @@ async def health_check() -> HealthCheckResponse:
     return HealthCheckResponse(status="healthy")
 
 
-@app.get(f"{settings.api_url_prefix}/v1/test", tags=["Testing"], response_model=TestEndpointResponse)
+@app.get(f"{prefix_v1}/test", tags=["Testing"], response_model=TestEndpointResponse)
 async def test_endpoint() -> TestEndpointResponse:
     """Test endpoint to verify routing
     
