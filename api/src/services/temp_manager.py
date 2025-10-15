@@ -4,7 +4,7 @@ import asyncio
 import os
 import time
 import uuid
-import aioredis
+from redis import asyncio as aioredis
 from typing import Optional
 
 import aiofiles

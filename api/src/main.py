@@ -15,10 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
 from .core.config import settings
-from .core.middleware import (
-    BearerAuthMiddleware,
-    DisabledEndpointsMiddleware,
-)
+from .core.middleware import (BearerAuthMiddleware)
 from .routers.debug import router as debug_router
 from .routers.development import router as dev_router
 from .routers.openai_compatible import router as openai_router
@@ -175,6 +172,13 @@ async def lifespan(app: FastAPI):
         logger.info("Closing Redis connection...")
         await redis_client.close()
 
+# Include routers
+# Normalize API URL prefix: ensure leading slash and no trailing slash when provided
+raw_prefix = (settings.api_url_prefix or "").strip()
+if raw_prefix:
+    api_prefix = "/" + raw_prefix.strip("/")
+else:
+    api_prefix = ""
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -183,21 +187,15 @@ app = FastAPI(
     version=settings.api_version,
     lifespan=lifespan,
     # Conditionally enable/disable OpenAPI documentation
-    openapi_url="/openapi.json" if settings.enable_openapi_docs else None,
-    docs_url="/docs" if settings.enable_openapi_docs else None,
-    redoc_url="/redoc" if settings.enable_openapi_docs else None,
+    openapi_url=f"{api_prefix}/openapi.json" if settings.enable_openapi_docs else None,
+    docs_url=f"{api_prefix}/docs" if settings.enable_openapi_docs else None,
+    redoc_url=f"{api_prefix}/redoc" if settings.enable_openapi_docs else None,
 )
 
-# Add custom middleware (order matters: last added = first executed)
-# 1. Disabled endpoints check (executes first)
-app.add_middleware(DisabledEndpointsMiddleware)
-
-# 2. Authentication middleware
+# 1. Authentication middleware
 app.add_middleware(BearerAuthMiddleware)
 
-
-
-# 3. CORS middleware if enabled
+# 2. CORS middleware if enabled
 if settings.cors_enabled:
     app.add_middleware(
         CORSMiddleware,
@@ -207,35 +205,17 @@ if settings.cors_enabled:
         allow_headers=["*"],
     )
 
-# Include routers
-# Normalize API URL prefix: ensure leading slash and no trailing slash when provided
-raw_prefix = (settings.api_url_prefix or "").strip()
-if raw_prefix:
-    api_prefix = "/" + raw_prefix.strip("/")
-else:
-    api_prefix = ""
+app.include_router(openai_router, prefix=f"{api_prefix}/v1")
 
-# v1 prefix always starts with '/v1' (with optional api_prefix before it)
-prefix_v1 = f"{api_prefix}/v1" if api_prefix else "/v1"
-
-app.include_router(openai_router, prefix=prefix_v1)
-
-# Only pass a prefix for dev/debug routers when an API prefix is configured
-if api_prefix:
-    app.include_router(dev_router, prefix=api_prefix)  # Development endpoints
-    app.include_router(debug_router, prefix=api_prefix)  # Debug endpoints
-else:
-    app.include_router(dev_router)
-    app.include_router(debug_router)
+app.include_router(dev_router, prefix=api_prefix)  # Development endpoints
+app.include_router(debug_router, prefix=api_prefix)  # Debug endpoints
 
 if settings.enable_web_player:
-    # web router should be mounted at /web under the api prefix (or at /web if none)
-    prefix_web = f"{api_prefix}/web" if api_prefix else "/web"
-    app.include_router(web_router, prefix=prefix_web)  # Web player static files
+    app.include_router(web_router, prefix=f"{api_prefix}/web")  # Web player static files
 
 
 # Health check endpoint
-@app.get("/health", tags=["Health"], response_model=HealthCheckResponse)
+@app.get(f"{api_prefix}/health", tags=["Health"], response_model=HealthCheckResponse)
 async def health_check() -> HealthCheckResponse:
     """Health check endpoint
     
@@ -247,7 +227,7 @@ async def health_check() -> HealthCheckResponse:
     return HealthCheckResponse(status="healthy")
 
 
-@app.get(f"{prefix_v1}/test", tags=["Testing"], response_model=TestEndpointResponse)
+@app.get(f"{api_prefix}/test", tags=["Testing"], response_model=TestEndpointResponse)
 async def test_endpoint() -> TestEndpointResponse:
     """Test endpoint to verify routing
     

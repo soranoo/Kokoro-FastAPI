@@ -9,40 +9,6 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from .config import settings
 
-class DisabledEndpointsMiddleware(BaseHTTPMiddleware):
-    """Middleware to block access to disabled features"""
-
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        path = request.url.path
-
-        # Block OpenAPI docs if disabled
-        if not settings.enable_openapi_docs:
-            if path in {"/docs", "/redoc", "/openapi.json"}:
-                logger.warning(f"Access denied to disabled endpoint: {path}")
-                return JSONResponse(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    content={
-                        "error": "not_found",
-                        "message": "API documentation is disabled",
-                        "type": "feature_disabled",
-                    },
-                )
-
-        # Block web player if disabled
-        if not settings.enable_web_player:
-            if path.startswith("/web/"):
-                logger.warning(f"Access denied to disabled web player: {path}")
-                return JSONResponse(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    content={
-                        "error": "not_found",
-                        "message": "Web player is disabled",
-                        "type": "feature_disabled",
-                    },
-                )
-
-        return await call_next(request)
-
 class BearerAuthMiddleware(BaseHTTPMiddleware):
     """Middleware to enforce Bearer token authentication"""
 
@@ -62,6 +28,13 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
         public_prefixes = ()
         if settings.enable_web_player:
             public_prefixes = ("/web/",)
+
+        # Add path prefix if set
+        if settings.api_url_prefix:
+            prefix = "/" + settings.api_url_prefix.strip("/")
+            public_paths = {prefix + path for path in public_paths}
+            if public_prefixes:
+                public_prefixes = tuple(prefix + p for p in public_prefixes)
 
         # Allow public paths
         if request.url.path in public_paths:

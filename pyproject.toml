@@ -40,7 +40,7 @@ dependencies = [
     "phonemizer-fork>=3.3.2",
     "av>=14.2.0",
     "text2num>=2.5.1",
-    "aioredis>=2.0.1",
+    "redis>=6.4.0",
 ]
 
 [project.optional-dependencies]
