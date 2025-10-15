@@ -57,13 +57,13 @@ async def lifespan(app: FastAPI):
     """Lifespan context manager for model initialization and Redis cleanup"""
     from .inference.model_manager import get_manager
     from .inference.voice_manager import get_manager as get_voice_manager
-    from .services.temp_manager import cleanup_temp_files, redis_periodic_cleanup_loop, REDIS_AVAILABLE
+    from .services.temp_manager import cleanup_temp_files, redis_periodic_cleanup_loop
 
     # Initialize Redis client and cleanup task if configured
     redis_client = None
     redis_cleanup_task = None
     
-    if REDIS_AVAILABLE and settings.redis_host and settings.redis_port:
+    if settings.redis_host and settings.redis_port:
         try:
             redis_client = settings.get_redis_client()
             await redis_client.ping()
