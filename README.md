@@ -804,27 +804,7 @@ The full Apache 2.0 license text can be found at: https://www.apache.org/license
 To use Redis for temporary file management in this project, the user must have the following permissions:
 
 ```txt
-~* +get +hget +zrange +set +hset +zadd +del +zrem +expire +ttl +ping -@dangerous -@admin
+~* +get +hget +zrange +zrangebyscore +set +hset +zadd +del +zrem +expire +ttl +ping +eval +evalsha -@dangerous -@admin
 ```
-
-1. **Read Permissions**:
-   - The user must be able to read keys and values from Redis.
-   - Example commands: `GET`, `HGET`, `ZRANGE`.
-
-2. **Write Permissions**:
-   - The user must be able to write keys and values to Redis.
-   - Example commands: `SET`, `HSET`, `ZADD`.
-
-3. **Delete Permissions**:
-   - The user must be able to delete keys from Redis.
-   - Example commands: `DEL`, `ZREM`.
-
-4. **Key Management Permissions**:
-   - The user must be able to manage keys, such as setting expiration times.
-   - Example commands: `EXPIRE`, `TTL`.
-
-5. **Connection Check Permissions**:
-   - The user must be able to check the connection to Redis.
-   - Example commands: `PING`.
 
 Ensure that the Redis user has these permissions to avoid runtime errors when using Redis for temporary file management.
