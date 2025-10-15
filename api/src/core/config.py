@@ -1,5 +1,5 @@
 import torch
-import redis.asyncio as aioredis
+import aioredis
 from pydantic_settings import BaseSettings
 
 
