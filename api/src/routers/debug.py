@@ -7,6 +7,9 @@ import torch
 from fastapi import APIRouter
 
 from ..structures.schemas import (
+    DetailedSystemResponse,
+    DiskPartitionInfo,
+    DiskStorageResponse,
     SessionPoolsResponse,
     StorageResponse,
     SystemResponse,
@@ -56,8 +59,8 @@ async def get_thread_info() -> ThreadsResponse:
     )
 
 
-@router.get("/debug/storage")
-async def get_storage_info():
+@router.get("/debug/storage", response_model=DiskStorageResponse)
+async def get_storage_info() -> DiskStorageResponse:
     """Get information about disk storage and partitions
     
     Args:
@@ -87,10 +90,10 @@ async def get_storage_info():
         except PermissionError:
             continue
 
-    return {"storage_info": storage_info}
+    return DiskStorageResponse(storage_info=storage_info)
 
 
-@router.get("/debug/system")
+@router.get("/debug/system", response_model=DetailedSystemResponse)
 async def get_system_info():
     """Get comprehensive system information including CPU, memory, and GPU
     
@@ -182,7 +185,7 @@ async def get_system_info():
     }
 
 
-@router.get("/debug/session_pools")
+@router.get("/debug/session_pools", response_model=SessionPoolsResponse)
 async def get_session_pool_info():
     """Get information about ONNX session pools
     

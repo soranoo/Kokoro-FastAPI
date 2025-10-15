@@ -1,6 +1,6 @@
 from email.policy import default
 from enum import Enum
-from typing import List, Literal, Optional, Union
+from typing import List, Literal, Optional, Tuple, Union
 
 from pydantic import BaseModel, Field
 
@@ -204,6 +204,24 @@ class StorageResponse(BaseModel):
     output_dir: StorageInfo = Field(..., description="Output directory information")
 
 
+class DiskPartitionInfo(BaseModel):
+    """Disk partition information schema"""
+
+    device: str = Field(..., description="Device identifier")
+    mountpoint: str = Field(..., description="Mount point path")
+    fstype: str = Field(..., description="File system type")
+    total_gb: float = Field(..., description="Total capacity in GB")
+    used_gb: float = Field(..., description="Used space in GB")
+    free_gb: float = Field(..., description="Free space in GB")
+    percent_used: float = Field(..., description="Percentage of space used")
+
+
+class DiskStorageResponse(BaseModel):
+    """Response schema for disk storage endpoint"""
+
+    storage_info: List[DiskPartitionInfo] = Field(..., description="List of disk partition information")
+
+
 class GPUInfo(BaseModel):
     """GPU information schema"""
 
@@ -215,6 +233,102 @@ class GPUInfo(BaseModel):
     memory_percent: float = Field(..., description="Memory usage percentage")
     gpu_util: float = Field(..., description="GPU utilization percentage")
     temperature: float = Field(..., description="GPU temperature in Celsius")
+
+
+class DetailedCPUInfo(BaseModel):
+    """Detailed CPU information schema"""
+
+    cpu_count: int | None = Field(None, description="Number of CPU cores")
+    cpu_percent: float = Field(..., description="Overall CPU usage percentage")
+    per_cpu_percent: List[float] = Field(..., description="Per-CPU usage percentages")
+    load_avg: Tuple[float, float, float] | List[float] = Field(..., description="Load average (1, 5, 15 min)")
+
+
+class VirtualMemoryInfo(BaseModel):
+    """Virtual memory information schema"""
+
+    total_gb: float = Field(..., description="Total memory in GB")
+    available_gb: float = Field(..., description="Available memory in GB")
+    used_gb: float = Field(..., description="Used memory in GB")
+    percent: float = Field(..., description="Memory usage percentage")
+
+
+class SwapMemoryInfo(BaseModel):
+    """Swap memory information schema"""
+
+    total_gb: float = Field(..., description="Total swap in GB")
+    used_gb: float = Field(..., description="Used swap in GB")
+    free_gb: float = Field(..., description="Free swap in GB")
+    percent: float = Field(..., description="Swap usage percentage")
+
+
+class DetailedMemoryInfo(BaseModel):
+    """Detailed memory information schema"""
+
+    virtual: VirtualMemoryInfo = Field(..., description="Virtual memory information")
+    swap: SwapMemoryInfo = Field(..., description="Swap memory information")
+
+
+class ProcessInfo(BaseModel):
+    """Process information schema"""
+
+    pid: int = Field(..., description="Process ID")
+    status: str = Field(..., description="Process status")
+    create_time: str = Field(..., description="Process creation time (ISO format)")
+    cpu_percent: float = Field(..., description="Process CPU usage percentage")
+    memory_percent: float = Field(..., description="Process memory usage percentage")
+
+
+class NetworkIOCounters(BaseModel):
+    """Network IO counters schema"""
+    
+    class Config:
+        extra = "allow"  # Allow additional fields from psutil
+
+
+class NetworkInfo(BaseModel):
+    """Network information schema"""
+
+    connections: int = Field(..., description="Number of network connections")
+    network_io: dict = Field(..., description="Network IO counters")
+
+
+class DetailedGPUMemory(BaseModel):
+    """Detailed GPU memory information schema"""
+
+    total: float = Field(..., description="Total GPU memory")
+    used: float = Field(..., description="Used GPU memory")
+    free: float = Field(..., description="Free GPU memory")
+    percent: float = Field(..., description="GPU memory usage percentage")
+
+
+class DetailedGPUInfo(BaseModel):
+    """Detailed GPU information schema for system endpoint"""
+
+    id: int = Field(..., description="GPU identifier")
+    name: str = Field(..., description="GPU name")
+    load: float = Field(..., description="GPU load")
+    memory: DetailedGPUMemory = Field(..., description="GPU memory information")
+    temperature: float = Field(..., description="GPU temperature in Celsius")
+
+
+class MPSGPUInfo(BaseModel):
+    """MPS (Apple Silicon) GPU information schema"""
+
+    type: str = Field(..., description="GPU type")
+    available: bool = Field(..., description="Whether GPU is available")
+    device: str = Field(..., description="Device name")
+    backend: str = Field(..., description="Backend technology")
+
+
+class DetailedSystemResponse(BaseModel):
+    """Detailed response schema for system debug endpoint"""
+
+    cpu: DetailedCPUInfo = Field(..., description="CPU information")
+    memory: DetailedMemoryInfo = Field(..., description="Memory information")
+    process: ProcessInfo = Field(..., description="Process information")
+    network: NetworkInfo = Field(..., description="Network information")
+    gpu: List[DetailedGPUInfo] | MPSGPUInfo | str | None = Field(None, description="GPU information")
 
 
 class SystemResponse(BaseModel):
@@ -230,10 +344,53 @@ class SystemResponse(BaseModel):
     gpus: List[GPUInfo] | None = Field(default=None, description="List of GPU information")
 
 
+class SessionInfo(BaseModel):
+    """Session information schema"""
+
+    model: str = Field(..., description="Model path")
+    age_seconds: float = Field(..., description="Age of session in seconds")
+
+
+class GPUSessionInfo(BaseModel):
+    """GPU session information schema"""
+
+    model: str = Field(..., description="Model path")
+    age_seconds: float = Field(..., description="Age of session in seconds")
+    stream_id: int = Field(..., description="CUDA stream ID")
+
+
+class GPUMemoryInfo(BaseModel):
+    """GPU memory information for session pools"""
+
+    total_mb: float = Field(..., description="Total GPU memory in MB")
+    used_mb: float = Field(..., description="Used GPU memory in MB")
+    free_mb: float = Field(..., description="Free GPU memory in MB")
+    percent_used: float = Field(..., description="Percentage of GPU memory used")
+
+
+class CPUPoolInfo(BaseModel):
+    """CPU session pool information"""
+
+    active_sessions: int = Field(..., description="Number of active sessions")
+    max_sessions: int = Field(..., description="Maximum number of sessions")
+    sessions: List[SessionInfo] = Field(..., description="List of active sessions")
+
+
+class GPUPoolInfo(BaseModel):
+    """GPU session pool information"""
+
+    active_sessions: int = Field(..., description="Number of active sessions")
+    max_streams: int = Field(..., description="Maximum number of streams")
+    available_streams: int = Field(..., description="Number of available streams")
+    sessions: List[GPUSessionInfo] = Field(..., description="List of active sessions")
+    memory: Optional[GPUMemoryInfo] = Field(None, description="GPU memory information")
+
+
 class SessionPoolsResponse(BaseModel):
     """Response schema for session pools debug endpoint"""
 
-    message: str = Field(..., description="Status message")
+    cpu: Optional[CPUPoolInfo] = Field(None, description="CPU pool information")
+    gpu: Optional[GPUPoolInfo] = Field(None, description="GPU pool information")
 
 
 class CaptionedSpeechRequest(BaseModel):

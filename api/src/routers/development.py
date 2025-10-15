@@ -177,7 +177,7 @@ async def generate_from_phonemes(
         )
 
 
-@router.post("/dev/captioned_speech")
+@router.post("/dev/captioned_speech", response_model=CaptionedSpeechResponse)
 async def create_captioned_speech(
     request: CaptionedSpeechRequest,
     client_request: Request,
