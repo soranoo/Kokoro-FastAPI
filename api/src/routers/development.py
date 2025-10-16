@@ -19,7 +19,11 @@ from ..services.streaming_audio_writer import StreamingAudioWriter
 from ..services.temp_manager import TempFileWriter
 from ..services.text_processing import smart_split
 from ..services.tts_service import TTSService
-from ..structures import CaptionedSpeechRequest, CaptionedSpeechResponse, WordTimestamp
+from ..structures import (
+    CaptionedSpeechRequest,
+    CaptionedSpeechResponse,
+    WordTimestamp,
+)
 from ..structures.custom_responses import JSONStreamingResponse
 from ..structures.text_schemas import (
     GenerateFromPhonemesRequest,
@@ -80,7 +84,19 @@ async def phonemize_text(request: PhonemeRequest) -> PhonemeResponse:
         )
 
 
-@router.post("/dev/generate_from_phonemes")
+@router.post(
+    "/dev/generate_from_phonemes",
+    responses={
+        200: {
+            "content": {
+                "audio/wav": {
+                    "schema": {"type": "string", "format": "binary"}
+                }
+            },
+            "description": "Streaming WAV audio (binary)"
+        }
+    },
+)
 async def generate_from_phonemes(
     request: GenerateFromPhonemesRequest,
     client_request: Request,
@@ -177,7 +193,20 @@ async def generate_from_phonemes(
         )
 
 
-@router.post("/dev/captioned_speech", response_model=CaptionedSpeechResponse)
+@router.post(
+    "/dev/captioned_speech",
+    response_model=CaptionedSpeechResponse,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "schema": {"$ref": "#/components/schemas/CaptionedSpeechResponse"}
+                }
+            },
+            "description": "Streaming JSON chunks of CaptionedSpeechResponse (newline-delimited)."
+        }
+    },
+)
 async def create_captioned_speech(
     request: CaptionedSpeechRequest,
     client_request: Request,
