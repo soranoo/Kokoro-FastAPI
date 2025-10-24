@@ -260,7 +260,10 @@ async def create_captioned_speech(
                 # Get Redis client from app state (may be None)
                 redis_client = getattr(client_request.app.state, 'redis', None)
                 
-                temp_writer = TempFileWriter(request.response_format, redis=redis_client)
+                # Get user ID from request state (set by JWT middleware)
+                user_id = getattr(client_request.state, 'user_id', None)
+                
+                temp_writer = TempFileWriter(request.response_format, redis=redis_client, user_id=user_id)
                 await temp_writer.__aenter__()  # Initialize temp file
 
                 # Get download path immediately after temp file creation

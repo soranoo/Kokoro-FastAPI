@@ -520,6 +520,19 @@ Useful for debugging resource exhaustion or performance issues.
 
 The API can be configured using environment variables. Create a `.env` file in your project root or set these variables in your environment:
 
+### Logging Settings
+
+```env
+# Set the logging level for the application (default: INFO)
+# Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+LOG_LEVEL=INFO
+```
+
+**Use cases:**
+- Set to `DEBUG` for detailed troubleshooting and development
+- Set to `INFO` for normal production logging
+- Set to `WARNING` or `ERROR` to reduce log verbosity in production
+
 ### Security Settings
 
 ```env
@@ -530,7 +543,37 @@ HIDE_SERVER_HEADER=true
 # If set, all API requests must include "Authorization: Bearer <token>" header
 # Leave empty or unset to disable authentication (default: disabled)
 API_BEARER_TOKEN=your-secret-token-here
+
+# JWT secret key for user session tracking (auto-generated if not set)
+# IMPORTANT: Set this in production to maintain consistent sessions across restarts
+JWT_SECRET_KEY=your-long-random-secret-key-here
+
+# JWT cookie configuration
+JWT_COOKIE_NAME=user_session  # Name of the session cookie (default: user_session)
+JWT_COOKIE_MAX_AGE=86400  # Cookie expiry in seconds (default: 86400 = 24 hours)
+JWT_REFRESH_THRESHOLD=0.5  # Refresh token when remaining life is below this percentage (0.0-1.0, default: 0.5 = 50%)
 ```
+
+**JWT Session Tracking:**
+The API uses JWT cookies to track user sessions and ensure users can only download audio files they generated. This happens automatically:
+- When a user first accesses the API, a JWT cookie is created with a unique user ID
+- All generated audio files are associated with this user ID
+- Users can only download files they created
+- Sessions expire after `JWT_COOKIE_MAX_AGE` seconds (default: 24 hours)
+- Tokens are automatically refreshed when remaining lifetime drops below `JWT_REFRESH_THRESHOLD` (default: 50%)
+
+**Token Auto-Refresh:**
+The middleware automatically refreshes JWT tokens to maintain seamless user sessions:
+- When a token's remaining lifetime is below the threshold percentage, it's automatically refreshed on the next request
+- Example: With `JWT_COOKIE_MAX_AGE=86400` (24h) and `JWT_REFRESH_THRESHOLD=0.5`, tokens refresh after 12 hours
+- Set `JWT_REFRESH_THRESHOLD=0.8` to refresh when 80% of the lifetime has passed (more frequent refreshes)
+- Set `JWT_REFRESH_THRESHOLD=0.2` to refresh only when 80% of the lifetime has elapsed (less frequent refreshes)
+
+**Important notes:**
+- `JWT_SECRET_KEY` should be a long, random string (recommended: 32+ characters)
+- If not set, a secret key is auto-generated on startup (not recommended for production)
+- Changing the secret key will invalidate all existing user sessions
+- For production, always set `JWT_SECRET_KEY` to maintain sessions across restarts
 
 **When to use authentication:**
 - Production deployments
@@ -589,26 +632,35 @@ ENABLE_WEB_PLAYER=true
 
 **Development:**
 ```env
+LOG_LEVEL=DEBUG
 ENABLE_OPENAPI_DOCS=true
 ENABLE_WEB_PLAYER=true
 API_BEARER_TOKEN=
 HIDE_SERVER_HEADER=true
+JWT_SECRET_KEY=  # Auto-generated for development
+JWT_REFRESH_THRESHOLD=0.5  # Refresh at 50% remaining lifetime
 ```
 
 **Production (Locked Down):**
 ```env
+LOG_LEVEL=INFO
 ENABLE_OPENAPI_DOCS=false
 ENABLE_WEB_PLAYER=false
 API_BEARER_TOKEN=your-secret-token
 HIDE_SERVER_HEADER=true
+JWT_SECRET_KEY=your-long-random-secret-key-here  # Required for production
+JWT_REFRESH_THRESHOLD=0.5  # Refresh at 50% remaining lifetime
 ```
 
 **Production (Public API with Docs):**
 ```env
+LOG_LEVEL=INFO
 ENABLE_OPENAPI_DOCS=true
 ENABLE_WEB_PLAYER=false
 API_BEARER_TOKEN=your-secret-token
 HIDE_SERVER_HEADER=true
+JWT_SECRET_KEY=your-long-random-secret-key-here  # Required for production
+JWT_REFRESH_THRESHOLD=0.5  # Refresh at 50% remaining lifetime
 ```
 
 ### API Responses for Disabled Features

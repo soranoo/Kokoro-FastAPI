@@ -13,9 +13,16 @@ class Settings(BaseSettings):
     api_url_prefix: str = ""  # Optional URL prefix for all routes (e.g., "/api", "/v2")
     server_base_url: str | None = None  # Base URL for generating full download links (e.g., "http://localhost:8880")
     
+    # Logging Settings
+    log_level: str = "INFO"  # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+    
     # Security Settings
     hide_server_header: bool = True  # Hide server header from responses
     api_bearer_token: str | None = None  # Optional Bearer token for authentication
+    jwt_secret_key: str | None = None  # Secret key for JWT token generation (auto-generated if not set)
+    jwt_cookie_name: str = "user_session"  # Name of the JWT cookie
+    jwt_cookie_max_age: int = 86400  # JWT cookie expiry in seconds (default: 24 hours)
+    jwt_refresh_threshold: float = 0.5  # Refresh token when remaining life is below this percentage (0.0-1.0, default: 50%)
     
     # API Documentation Settings
     enable_openapi_docs: bool = True  # Whether to enable OpenAPI documentation (/docs, /redoc, /openapi.json)
@@ -144,6 +151,23 @@ class Settings(BaseSettings):
             from loguru import logger
             logger.error(f"Failed to create Redis client: {e}")
             return None
+    
+    def get_jwt_secret(self) -> str:
+        """Get JWT secret key, generating one if not configured
+        
+        Returns:
+            JWT secret key string
+        """
+        import secrets
+        
+        if self.jwt_secret_key:
+            return self.jwt_secret_key
+        
+        # Auto-generate a secret key if not provided
+        # In production, this should be set in environment variables
+        from loguru import logger
+        logger.warning("JWT_SECRET_KEY not set, using auto-generated key (not recommended for production)")
+        return secrets.token_urlsafe(32)
 
 
 settings = Settings()

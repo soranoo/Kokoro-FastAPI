@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
 from .core.config import settings
-from .core.middleware import (BearerAuthMiddleware)
+from .core.middleware import (BearerAuthMiddleware, JWTCookieMiddleware)
 from .routers.debug import router as debug_router
 from .routers.development import router as dev_router
 from .routers.openai_compatible import router as openai_router
@@ -36,7 +36,7 @@ def setup_logger():
                 "<fg #4169E1>{module}:{line}</fg #4169E1> | "
                 "{message}",
                 "colorize": True,
-                "level": "DEBUG",
+                "level": settings.log_level.upper(),
             },
         ],
     }
@@ -192,10 +192,13 @@ app = FastAPI(
     redoc_url=f"{api_prefix}/redoc" if settings.enable_openapi_docs else None,
 )
 
-# 1. Authentication middleware
+# 1. JWT Cookie middleware (must be first to set user_id in request.state)
+app.add_middleware(JWTCookieMiddleware)
+
+# 2. Authentication middleware
 app.add_middleware(BearerAuthMiddleware)
 
-# 2. CORS middleware if enabled
+# 3. CORS middleware if enabled
 if settings.cors_enabled:
     app.add_middleware(
         CORSMiddleware,

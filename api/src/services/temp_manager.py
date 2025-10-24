@@ -30,21 +30,31 @@ return expired
 """
 
 
-async def register_temp_file(redis: Optional["aioredis.Redis"], file_path: str, ttl_seconds: int) -> None:
-    """Register a temp file in Redis with expiry timestamp
+async def register_temp_file(redis: Optional["aioredis.Redis"], file_path: str, ttl_seconds: int, user_id: Optional[str] = None) -> None:
+    """Register a temp file in Redis with expiry timestamp and user ownership
     
     Args:
         redis: Redis client (None if Redis not configured)
         file_path: Absolute path to temp file
         ttl_seconds: Time to live in seconds
+        user_id: User ID who owns this file (for access control)
     """
     if not redis:
         return
     
     try:
         expiry_timestamp = time.time() + ttl_seconds
+        
+        # Store file path with expiry in sorted set
         await redis.zadd(settings.temp_redis_zset_key, {file_path: expiry_timestamp})
-        logger.debug(f"Registered temp file in Redis: {file_path} (expires at {expiry_timestamp})")
+        
+        # Store user ownership in hash if user_id provided
+        if user_id:
+            ownership_key = f"{settings.temp_redis_zset_key}:ownership"
+            await redis.hset(ownership_key, file_path, user_id)
+            await redis.expire(ownership_key, ttl_seconds + 3600)  # Add buffer time
+            
+        logger.debug(f"Registered temp file in Redis: {file_path} (expires at {expiry_timestamp}, user: {user_id})")
     except Exception as e:
         logger.warning(f"Failed to register temp file in Redis: {e}")
 
@@ -61,6 +71,11 @@ async def remove_temp_registration(redis: Optional["aioredis.Redis"], file_path:
     
     try:
         await redis.zrem(settings.temp_redis_zset_key, file_path)
+        
+        # Also remove ownership record
+        ownership_key = f"{settings.temp_redis_zset_key}:ownership"
+        await redis.hdel(ownership_key, file_path)
+        
         logger.debug(f"Removed temp file registration from Redis: {file_path}")
     except Exception as e:
         logger.warning(f"Failed to remove temp file from Redis: {e}")
@@ -97,6 +112,43 @@ async def check_file_exists_in_redis(redis: Optional["aioredis.Redis"], file_pat
         # Fallback to filesystem check
         return await aiofiles.os.path.exists(file_path)
 
+
+async def verify_file_ownership(redis: Optional["aioredis.Redis"], file_path: str, user_id: str) -> bool:
+    """Verify that a user owns a specific temp file
+    
+    Args:
+        redis: Redis client (None if Redis not configured)
+        file_path: Absolute path to temp file
+        user_id: User ID to verify ownership
+        
+    Returns:
+        True if user owns the file or Redis not configured, False otherwise
+    """
+    if not redis:
+        # If Redis not configured, allow access (backward compatibility)
+        logger.debug(f"Redis not configured, allowing access to {file_path}")
+        return True
+    
+    try:
+        ownership_key = f"{settings.temp_redis_zset_key}:ownership"
+        stored_user_id = await redis.hget(ownership_key, file_path)
+        
+        if stored_user_id is None:
+            logger.warning(f"No ownership record found for {file_path}")
+            # Allow access if no ownership record (backward compatibility)
+            return True
+        
+        if stored_user_id == user_id:
+            logger.debug(f"User {user_id} verified as owner of {file_path}")
+            return True
+        else:
+            logger.warning(f"User {user_id} attempted to access file owned by {stored_user_id}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Failed to verify file ownership: {e}")
+        # On error, deny all access to be safe
+        return False
 
 async def redis_cleanup_once(redis: "aioredis.Redis", batch_size: int = 100) -> int:
     """Execute one cleanup cycle: find expired files, delete them from Redis and filesystem
@@ -238,15 +290,17 @@ async def cleanup_temp_files() -> None:
 class TempFileWriter:
     """Handles writing audio chunks to a temp file with Redis lifecycle management"""
 
-    def __init__(self, format: str, redis: Optional["aioredis.Redis"] = None):
+    def __init__(self, format: str, redis: Optional["aioredis.Redis"] = None, user_id: Optional[str] = None):
         """Initialize temp file writer
 
         Args:
             format: Audio format extension (mp3, wav, etc)
             redis: Optional Redis client for lifecycle management
+            user_id: Optional user ID for ownership tracking
         """
         self.format = format
         self.redis = redis
+        self.user_id = user_id
         self.temp_file = None
         self._finalized = False
         self._write_error = False  # Flag to track if we've had a write error
@@ -272,11 +326,11 @@ class TempFileWriter:
             # Generate download path immediately
             self.download_path = f"/download/{os.path.basename(self.temp_path)}"
             
-            # Register in Redis if available
+            # Register in Redis if available (with user_id for ownership)
             if self.redis:
-                await register_temp_file(self.redis, self.temp_path, settings.temp_file_ttl_seconds)
+                await register_temp_file(self.redis, self.temp_path, settings.temp_file_ttl_seconds, self.user_id)
             
-            logger.debug(f"Created temp file: {self.temp_path}")
+            logger.debug(f"Created temp file: {self.temp_path} for user: {self.user_id}")
         except Exception as e:
             # Handle permission issues or other errors gracefully
             logger.error(f"Failed to create temp file: {e}")

@@ -243,7 +243,10 @@ async def create_speech(
                 # Get Redis client from app state (may be None)
                 redis_client = getattr(client_request.app.state, 'redis', None)
                 
-                temp_writer = TempFileWriter(output_format, redis=redis_client)
+                # Get user ID from request state (set by JWT middleware)
+                user_id = getattr(client_request.state, 'user_id', None)
+                
+                temp_writer = TempFileWriter(output_format, redis=redis_client, user_id=user_id)
                 await temp_writer.__aenter__()  # Initialize temp file
 
                 # Get download path immediately after temp file creation
@@ -359,7 +362,10 @@ async def create_speech(
                 # Get Redis client from app state (may be None)
                 redis_client = getattr(client_request.app.state, 'redis', None)
                 
-                temp_writer = TempFileWriter(output_format, redis=redis_client)
+                # Get user ID from request state (set by JWT middleware)
+                user_id = getattr(client_request.state, 'user_id', None)
+                
+                temp_writer = TempFileWriter(output_format, redis=redis_client, user_id=user_id)
                 await temp_writer.__aenter__()  # Initialize temp file
 
                 # Get download path immediately after temp file creation
@@ -454,19 +460,44 @@ async def download_audio_file(filename: str, request: Request):
         FileResponse with the audio file
         
     Raises:
-        HTTPException: If file not found or server error
+        HTTPException: If file not found, access denied, or server error
     """
     try:
         from ..core.paths import _find_file, get_content_type
-        from ..services.temp_manager import remove_temp_registration
+        from ..services.temp_manager import remove_temp_registration, verify_file_ownership
+
+        # Get user ID from request state (set by JWT middleware)
+        user_id = getattr(request.state, 'user_id', None)
+        if not user_id:
+            logger.warning(f"No user ID found in request state for download: {filename}")
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error": "access_denied",
+                    "message": "User session not found",
+                    "type": "authentication_error",
+                },
+            )
 
         # Search for file in temp directory
         file_path = await _find_file(
             filename=filename, search_paths=[settings.temp_file_dir]
         )
 
-        # Remove temp file registration from Redis when download starts
+        # Verify user owns this file (Redis-based ownership check)
         redis_client = getattr(request.app.state, 'redis', None)
+        if not await verify_file_ownership(redis_client, file_path, user_id):
+            logger.warning(f"User {user_id} attempted unauthorized download of {filename}")
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error": "access_denied",
+                    "message": "You do not have permission to access this file",
+                    "type": "authorization_error",
+                },
+            )
+
+        # Remove temp file registration from Redis when download starts
         if redis_client:
             await remove_temp_registration(redis_client, file_path)
 
@@ -483,6 +514,8 @@ async def download_audio_file(filename: str, request: Request):
             },
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error serving download file {filename}: {e}")
         raise HTTPException(
