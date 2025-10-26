@@ -14,6 +14,7 @@ import torch
 from fastapi import APIRouter, Header, HTTPException, Request, Response
 from fastapi.responses import FileResponse, StreamingResponse
 from loguru import logger
+from botocore.exceptions import ClientError
 
 from ..core.config import settings
 from ..inference.base import AudioChunk
@@ -539,9 +540,6 @@ async def download_audio_file(filename: str, request: Request):
                 "Content-Disposition": f"attachment; filename={filename}",
             },
         )
-
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"Error serving download file {filename}: {e}")
         raise HTTPException(
@@ -576,10 +574,7 @@ async def download_s3_audio_file(filename: str, request: Request, dir: Optional[
         from fastapi.responses import RedirectResponse
 
         # Reconstruct the full S3 key from dir and filename
-        if dir:
-            s3_key = f"{dir}/{filename}"
-        else:
-            s3_key = filename
+        s3_key = f"{dir}/{filename}" if dir else filename
 
         # Verify signature
         if not signature or not verify_s3_key_signature(s3_key, signature):
@@ -636,6 +631,41 @@ async def download_s3_audio_file(filename: str, request: Request, dir: Optional[
                 },
             )
 
+        # Check if the S3 object exists before generating the presigned URL
+        try:
+            s3_client.head_object(Bucket=settings.s3_bucket_name, Key=s3_key)
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'NoSuchKey':
+                logger.error(f"S3 object {s3_key} does not exist in bucket {settings.s3_bucket_name}")
+                raise HTTPException(
+                    status_code=404,
+                    detail={
+                        "error": "not_found",
+                        "message": f"S3 object {s3_key} not found",
+                        "type": "storage_error",
+                    },
+                )
+            else:
+                logger.error(f"Error checking S3 object existence: {e}")
+                raise HTTPException(
+                    status_code=500,
+                    detail={
+                        "error": "server_error",
+                        "message": "Error checking S3 object existence",
+                        "type": "server_error",
+                    },
+                )
+        except Exception as e:
+            logger.error(f"Error checking S3 object existence: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error": "server_error",
+                    "message": "Error checking S3 object existence",
+                    "type": "server_error",
+                },
+            )
+
         presigned_url = generate_s3_presigned_url(s3_client, s3_key)
         if not presigned_url:
             logger.error(f"Failed to generate presigned URL for {s3_key}")
@@ -650,9 +680,6 @@ async def download_s3_audio_file(filename: str, request: Request, dir: Optional[
 
         # Redirect to presigned URL
         return RedirectResponse(url=presigned_url, status_code=302)
-
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"Error serving S3 download file {s3_key}: {e}")
         raise HTTPException(
@@ -662,7 +689,7 @@ async def download_s3_audio_file(filename: str, request: Request, dir: Optional[
                 "message": "Failed to serve audio file from S3",
                 "type": "server_error",
             },
-        )
+        ) from e
 
 
 @router.get("/models", response_model=ModelsListResponse)
@@ -762,8 +789,6 @@ async def retrieve_model(model: str) -> ModelObject:
 
         # Return the specific model
         return models[model]
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"Error retrieving model {model}: {str(e)}")
         raise HTTPException(

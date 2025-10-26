@@ -183,17 +183,17 @@ async def verify_file_ownership(redis: Optional["aioredis.Redis"], file_path: st
 
 async def redis_cleanup_once(redis: "aioredis.Redis", batch_size: int = 100) -> int:
     """Execute one cleanup cycle: find expired files, delete them from Redis and filesystem/S3
-    
+
     Args:
         redis: Redis client
         batch_size: Maximum number of files to cleanup in one batch
-        
+
     Returns:
         Number of files cleaned up
     """
     try:
         current_time = time.time()
-        
+
         # Execute Lua script atomically
         expired_files = await redis.eval(
             CLEANUP_LUA_SCRIPT,
@@ -202,64 +202,83 @@ async def redis_cleanup_once(redis: "aioredis.Redis", batch_size: int = 100) -> 
             current_time,  # ARGV[1]
             batch_size,  # ARGV[2]
         )
-        
+
         if not expired_files:
             return 0
-        
-        # Get storage types for all expired files
-        storage_type_key = f"{settings.temp_redis_zset_key}:storage_type"
-        storage_types = {}
-        for file_path_bytes in expired_files:
-            file_path = file_path_bytes.decode("utf-8") if isinstance(file_path_bytes, bytes) else file_path_bytes
-            storage_type = await redis.hget(storage_type_key, file_path)
-            storage_types[file_path] = storage_type or "local"
-        
-        # Delete files from filesystem or S3
-        deleted_count = 0
-        
-        # Get S3 client if needed
-        s3_client = None
-        if settings.enable_s3_storage:
-            s3_client = settings.get_s3_client()
-        
-        for file_path_bytes in expired_files:
-            file_path = file_path_bytes.decode("utf-8") if isinstance(file_path_bytes, bytes) else file_path_bytes
-            storage_type = storage_types.get(file_path, "local")
-            
-            try:
-                if storage_type == "s3":
-                    # Delete from S3
-                    if s3_client:
-                        from .s3_helper import delete_from_s3
-                        if await delete_from_s3(s3_client, file_path):
-                            logger.info(f"Deleted expired S3 temp file: {file_path}")
-                            deleted_count += 1
-                        else:
-                            logger.warning(f"Failed to delete S3 temp file: {file_path}")
-                    else:
-                        logger.warning(f"S3 client not available for deleting: {file_path}")
-                else:
-                    # Delete from local filesystem
-                    import aiofiles.os
-                    if await aiofiles.os.path.exists(file_path):
-                        await aiofiles.os.remove(file_path)
-                        logger.info(f"Deleted expired temp file: {file_path}")
-                        deleted_count += 1
-                    else:
-                        logger.debug(f"Temp file already deleted: {file_path}")
-            except Exception as e:
-                logger.warning(f"Failed to delete temp file {file_path}: {e}")
-        
+
+        # Decode file paths and get storage types
+        file_paths = [fp.decode("utf-8") if isinstance(fp, bytes) else fp for fp in expired_files]
+        storage_types = await _get_storage_types(redis, file_paths)
+
+        # Delete files and count successful deletions
+        s3_client = settings.get_s3_client() if settings.enable_s3_storage else None
+        deleted_count = await _delete_expired_files(file_paths, storage_types, s3_client)
+
         # Clean up storage type records
+        storage_type_key = f"{settings.temp_redis_zset_key}:storage_type"
         if expired_files:
-            await redis.hdel(storage_type_key, *[
-                fp.decode("utf-8") if isinstance(fp, bytes) else fp 
-                for fp in expired_files
-            ])
-        
+            await redis.hdel(storage_type_key, *file_paths)
+
         return deleted_count
     except Exception as e:
         logger.error(f"Redis cleanup cycle failed: {e}")
+        return 0
+
+
+async def _get_storage_types(redis: "aioredis.Redis", file_paths: list[str]) -> dict[str, str]:
+    """Get storage types for a list of file paths"""
+    storage_type_key = f"{settings.temp_redis_zset_key}:storage_type"
+    storage_types = {}
+
+    for file_path in file_paths:
+        storage_type = await redis.hget(storage_type_key, file_path)
+        storage_types[file_path] = storage_type.decode("utf-8") if isinstance(storage_type, bytes) else (storage_type or "local")
+
+    return storage_types
+
+
+async def _delete_expired_files(file_paths: list[str], storage_types: dict[str, str], s3_client) -> int:
+    """Delete expired files from filesystem or S3 and return count of successful deletions"""
+    deleted_count = 0
+
+    for file_path in file_paths:
+        storage_type = storage_types.get(file_path, "local")
+
+        try:
+            if storage_type == "s3":
+                deleted_count += await _delete_s3_file(s3_client, file_path)
+            else:
+                deleted_count += await _delete_local_file(file_path)
+        except Exception as e:
+            logger.warning(f"Failed to delete temp file {file_path}: {e}")
+
+    return deleted_count
+
+
+async def _delete_s3_file(s3_client, file_path: str) -> int:
+    """Delete a file from S3 and return 1 if successful, 0 otherwise"""
+    if not s3_client:
+        logger.warning(f"S3 client not available for deleting: {file_path}")
+        return 0
+
+    from .s3_helper import delete_from_s3
+    if await delete_from_s3(s3_client, file_path):
+        logger.info(f"Deleted expired S3 temp file: {file_path}")
+        return 1
+    else:
+        logger.warning(f"Failed to delete S3 temp file: {file_path}")
+        return 0
+
+
+async def _delete_local_file(file_path: str) -> int:
+    """Delete a local file and return 1 if successful, 0 otherwise"""
+    import aiofiles.os
+    if await aiofiles.os.path.exists(file_path):
+        await aiofiles.os.remove(file_path)
+        logger.info(f"Deleted expired temp file: {file_path}")
+        return 1
+    else:
+        logger.debug(f"Temp file already deleted: {file_path}")
         return 0
 
 
@@ -622,7 +641,11 @@ class TempFileWriter:
             return self.download_path
 
         try:
-            if self._use_s3:
+            if not self._use_s3:
+                # Close local file
+                if self.temp_file:
+                    await self.temp_file.close()
+            else:
                 # Upload buffer to S3
                 if self._buffer and self.s3_client:
                     from .s3_helper import upload_to_s3
@@ -634,10 +657,6 @@ class TempFileWriter:
                         logger.info(f"Uploaded {len(self._buffer)} bytes to S3: {self.s3_key}")
                     # Clear buffer
                     self._buffer.clear()
-            else:
-                # Close local file
-                if self.temp_file:
-                    await self.temp_file.close()
                     
             self._finalized = True
         except Exception as e:

@@ -204,15 +204,13 @@ class Settings(BaseSettings):
             import boto3
             
             # Create S3 client
-            s3_client = boto3.client(
+            return boto3.client(
                 's3',
                 endpoint_url=self.s3_endpoint,
                 region_name=self.s3_region,
                 aws_access_key_id=self.s3_access_key,
                 aws_secret_access_key=self.s3_access_secret
             )
-            
-            return s3_client
         except Exception as e:
             from loguru import logger
             logger.error(f"Failed to create S3 client: {e}")
