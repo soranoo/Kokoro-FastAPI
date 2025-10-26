@@ -8,6 +8,51 @@ The Kokoro FastAPI application implements **session-based cleanup** to automatic
 2. **Storage Management**: Orphaned files are automatically cleaned up
 3. **Privacy**: User data is removed when the session ends
 
+```mermaid
+sequenceDiagram
+    participant Redis as Redis/Timer
+    participant Cleanup as Cleanup Loop
+    participant SessionMgr as Session Manager
+    participant S3 as S3 Storage
+    participant FileSystem as File System
+    
+    loop Periodic Cleanup
+        Redis->>Cleanup: Trigger cleanup
+        
+        rect rgb(200, 255, 200)
+            Note over Cleanup: Phase 1: TTL-based cleanup
+            Cleanup->>Redis: Fetch expired files by TTL
+            loop For each expired file
+                Cleanup->>Cleanup: Check storage_type
+                alt File in S3
+                    Cleanup->>S3: delete_from_s3()
+                else File in Local Storage
+                    Cleanup->>FileSystem: Delete file
+                end
+                Cleanup->>Redis: Remove file record + ownership
+            end
+        end
+        
+        rect rgb(255, 200, 200)
+            Note over Cleanup: Phase 2: Session-based cleanup
+            Cleanup->>SessionMgr: cleanup_expired_sessions()
+            SessionMgr->>Redis: Fetch expired sessions
+            loop For each expired session
+                SessionMgr->>Redis: Get user's files (user_files:{user_id})
+                loop For each file
+                    SessionMgr->>Cleanup: Determine storage type
+                    alt S3 file
+                        SessionMgr->>S3: delete_from_s3()
+                    else Local file
+                        SessionMgr->>FileSystem: Delete
+                    end
+                    SessionMgr->>Redis: Remove ownership + file registration
+                end
+            end
+        end
+    end
+```
+
 ## How It Works
 
 ### 1. Session Tracking
