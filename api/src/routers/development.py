@@ -253,33 +253,45 @@ async def create_captioned_speech(
                 tts_service, request, client_request, writer
             )
 
-            # If download link requested, wrap generator with temp file writer
-            if request.return_download_link:
+            # If download link or S3 key requested, wrap generator with temp file writer
+            if request.return_download_link or request.return_s3_key:
                 from ..services.temp_manager import TempFileWriter
+                import json
 
                 # Get Redis client from app state (may be None)
                 redis_client = getattr(client_request.app.state, 'redis', None)
                 
+                # Get S3 client from app state (may be None)
+                s3_client = getattr(client_request.app.state, 's3', None)
+                
                 # Get user ID from request state (set by JWT middleware)
                 user_id = getattr(client_request.state, 'user_id', None)
                 
-                temp_writer = TempFileWriter(request.response_format, redis=redis_client, user_id=user_id)
+                temp_writer = TempFileWriter(
+                    request.response_format, 
+                    redis=redis_client, 
+                    user_id=user_id, 
+                    s3_client=s3_client,
+                    return_s3_key=request.return_s3_key
+                )
                 await temp_writer.__aenter__()  # Initialize temp file
 
-                # Get download path immediately after temp file creation
-                download_path = temp_writer.download_path
-                
-                # Construct full URL with base URL and prefix
-                full_download_url = f"{settings.get_base_url()}{settings.api_url_prefix}/v1{download_path}"
-
-                # Create response headers with download path
+                # Create response headers
                 headers = {
                     "Content-Disposition": f"attachment; filename=speech.{request.response_format}",
                     "X-Accel-Buffering": "no",
                     "Cache-Control": "no-cache",
                     "Transfer-Encoding": "chunked",
-                    "X-Download-Path": full_download_url,
                 }
+
+                # Add appropriate header based on request
+                if request.return_s3_key and temp_writer.s3_key_data:
+                    # Return S3 key with HMAC signature as JSON
+                    headers["X-S3-Key"] = json.dumps(temp_writer.s3_key_data)
+                elif request.return_download_link and temp_writer.download_path:
+                    # Return download URL
+                    full_download_url = f"{settings.get_base_url()}{settings.api_url_prefix}/v1{temp_writer.download_path}"
+                    headers["X-Download-Path"] = full_download_url
 
                 # Create async generator for streaming
                 async def dual_output():

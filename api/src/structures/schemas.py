@@ -109,6 +109,10 @@ class OpenAISpeechRequest(BaseModel):
         default=False,
         description="If true, returns a download link in X-Download-Path header after streaming completes",
     )
+    return_s3_key: bool = Field(
+        default=False,
+        description="If true and S3 storage is enabled, returns S3 key with HMAC signature in X-S3-Key header (as JSON: {key, signature})",
+    )
     lang_code: Optional[str] = Field(
         default=None,
         description="Optional language code to use for text processing. If not provided, will use first letter of voice name.",
@@ -426,6 +430,10 @@ class CaptionedSpeechRequest(BaseModel):
     return_download_link: bool = Field(
         default=False,
         description="If true, returns a download link in X-Download-Path header after streaming completes",
+    )
+    return_s3_key: bool = Field(
+        default=False,
+        description="If true and S3 storage is enabled, returns S3 key with HMAC signature in X-S3-Key header (as JSON: {key, signature})",
     )
     lang_code: Optional[str] = Field(
         default=None,

@@ -82,6 +82,24 @@ async def lifespan(app: FastAPI):
     
     # Store Redis client in app state for use in endpoints
     app.state.redis = redis_client
+    
+    # Initialize S3 client if configured
+    s3_client = None
+    if settings.enable_s3_storage:
+        try:
+            s3_client = settings.get_s3_client()
+            if s3_client:
+                # Test S3 connection by listing bucket
+                s3_client.head_bucket(Bucket=settings.s3_bucket_name)
+                logger.info(f"✅ S3 connected: {settings.s3_bucket_name}")
+            else:
+                logger.warning("S3 storage enabled but client initialization failed")
+        except Exception as e:
+            logger.warning(f"Failed to connect to S3, falling back to local storage: {e}")
+            s3_client = None
+    
+    # Store S3 client in app state for use in endpoints
+    app.state.s3 = s3_client
 
     logger.info("Loading TTS model and voice packs...")
 
@@ -147,7 +165,9 @@ async def lifespan(app: FastAPI):
         startup_msg += "\n🎵 Web Player: DISABLED"
     
     # Add temp file management info
-    if redis_client:
+    if s3_client:
+        startup_msg += f"\n🗂️  Temp Files: S3 storage enabled (Bucket: {settings.s3_bucket_name})"
+    elif redis_client:
         startup_msg += f"\n🗂️  Temp Files: Redis-managed (TTL: {settings.temp_file_ttl_seconds}s)"
     elif settings.enable_temp_file_system:
         startup_msg += "\n🗂️  Temp Files: Filesystem cleanup enabled"

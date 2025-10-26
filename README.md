@@ -727,6 +727,134 @@ ENABLE_TEMP_FILE_SYSTEM=false
 3. When downloads start, files are removed from Redis tracking
 4. If Redis is not configured, falls back to filesystem-based cleanup
 
+#### S3-Based Temp File Storage (Optional)
+
+For cloud deployments or distributed systems requiring object storage, you can use S3-compatible storage (AWS S3, DigitalOcean Spaces, MinIO, etc.) to store temporary audio files:
+
+```bash
+# Enable S3 storage (when enabled, local filesystem is not used for temp files)
+ENABLE_S3_STORAGE=true
+
+# S3 endpoint URL
+# - AWS S3: https://s3.amazonaws.com
+# - DigitalOcean Spaces: https://nyc3.digitaloceanspaces.com
+# - MinIO: http://localhost:9000
+S3_ENDPOINT=https://s3.amazonaws.com
+
+# S3 region (e.g., us-east-1, nyc3, etc.)
+S3_REGION=us-east-1
+
+# S3 bucket name where temp files will be stored
+S3_BUCKET_NAME=kokoro-tts-temp-files
+
+# S3 access credentials
+S3_ACCESS_KEY=your-access-key-id
+S3_ACCESS_SECRET=your-secret-access-key
+
+# Secret key for HMAC signature generation (for S3 key verification)
+# Used to sign the S3 key when return_s3_key=true is set in API requests
+# This prevents clients from brute-forcing S3 keys and allows other services to verify the object access
+S3_SIGNATURE_SECRET=your-long-random-secret-key-here
+
+# S3 presigned URL expiry in seconds (default: 1 hour)
+# How long AWS-signed presigned URLs remain valid for downloads
+S3_SIGNED_URL_EXPIRY=3600
+
+# Redis is still recommended for lifecycle management when using S3
+REDIS_HOST=localhost
+REDIS_PORT=6379
+TEMP_FILE_TTL_SECONDS=3600
+```
+
+**Benefits of S3-based storage:**
+
+- Scalable: No local disk space limitations
+- Distributed: Works seamlessly across multiple app instances
+- Cloud-native: Integrates with existing S3-compatible infrastructure
+- Secure: Uses AWS presigned URLs and HMAC key signatures for downloads
+- Cost-effective: Pay only for storage used
+
+**How it works:**
+
+1. When audio is generated with `return_download_link=true` or `return_s3_key=true`, files are buffered and uploaded to S3
+2. Files are registered in Redis with TTL for lifecycle management
+3. For `return_download_link=true`: Server returns a download URL that redirects to AWS presigned URL
+4. For `return_s3_key=true`: Server returns S3 key with HMAC signature for direct client-side URL generation
+5. Background cleanup task removes expired files from both Redis and S3
+
+**API Usage - Two Methods:**
+
+**Method 1: Server-side presigned URL (return_download_link)**
+```python
+import requests
+
+response = requests.post(
+    "http://localhost:8880/v1/audio/speech",
+    json={
+        "input": "Hello world!",
+        "voice": "af_bella",
+        "return_download_link": true  # Server handles presigned URL generation
+    }
+)
+
+# Get download URL from header (server-side presigned)
+download_url = response.headers.get("X-Download-Path")
+# Access the download URL - server will redirect to S3 presigned URL
+```
+
+**Method 2: Client-side S3 key with signature (return_s3_key)**
+```python
+import requests
+import json
+
+response = requests.post(
+    "http://localhost:8880/v1/audio/speech",
+    json={
+        "input": "Hello world!",
+        "voice": "af_bella",
+        "return_s3_key": true  # Get S3 key with HMAC signature
+    }
+)
+
+# Get S3 key data from header
+s3_key_data = json.loads(response.headers.get("X-S3-Key"))
+# s3_key_data = {"key": "temp/abc123.mp3", "signature": "hmac_sha256_hex"}
+
+# Client can now use the key + signature to request presigned URL from server
+# or verify the signature and generate presigned URL client-side if they have S3 credentials
+```
+
+**Security:**
+
+- **AWS Presigned URLs**: Generated using AWS SDK's standard presigning method (boto3)
+- **HMAC S3 Key Signatures**: Prevent clients from forging S3 keys when using `return_s3_key`
+- **User Ownership**: JWT session tracking ensures users can only access their own files
+- **Time-Limited Access**: Presigned URLs expire after `S3_SIGNED_URL_EXPIRY` seconds
+
+**S3-Compatible Services:**
+
+This implementation works with any S3-compatible service:
+
+- **AWS S3**: Native Amazon S3 service
+- **DigitalOcean Spaces**: Object storage with S3-compatible API
+- **MinIO**: Self-hosted S3-compatible object storage
+- **Backblaze B2**: S3-compatible cloud storage
+- **Wasabi**: S3-compatible hot cloud storage
+
+**Example Configuration for DigitalOcean Spaces:**
+
+```bash
+ENABLE_S3_STORAGE=true
+S3_ENDPOINT=https://nyc3.digitaloceanspaces.com
+S3_REGION=nyc3
+S3_BUCKET_NAME=your-space-name
+S3_ACCESS_KEY=your-spaces-access-key
+S3_ACCESS_SECRET=your-spaces-secret-key
+S3_SIGNATURE_SECRET=your-hmac-signing-secret
+```
+
+**Note:** When S3 storage is enabled, local filesystem storage is automatically disabled for temp files. Redis is still recommended for lifecycle management and ownership tracking.
+
 For a complete list of environment variables, see the `.env.example` file or `api/src/core/config.py`.
 
 </details>
