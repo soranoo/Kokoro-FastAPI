@@ -5,7 +5,7 @@ import json
 import os
 import re
 import tempfile
-from typing import AsyncGenerator, Dict, List, Tuple, Union
+from typing import AsyncGenerator, Dict, List, Optional, Tuple, Union
 from urllib import response
 
 import aiofiles
@@ -554,12 +554,13 @@ async def download_audio_file(filename: str, request: Request):
         )
 
 
-@router.get("/download/s3/{s3_key:path}")
-async def download_s3_audio_file(s3_key: str, signature: str, request: Request):
+@router.get("/download/s3/{filename:path}")
+async def download_s3_audio_file(filename: str, request: Request, folder: Optional[str] = None, signature: Optional[str] = None):
     """Download a generated audio file from S3 storage with presigned URL
     
     Args:
-        s3_key: S3 object key
+        filename: S3 object filename (without folder prefix)
+        folder: Optional folder prefix for the S3 object
         signature: HMAC signature for verification
         request: FastAPI request object for accessing app state
         
@@ -574,8 +575,14 @@ async def download_s3_audio_file(s3_key: str, signature: str, request: Request):
         from ..services.s3_helper import verify_s3_key_signature, generate_s3_presigned_url
         from fastapi.responses import RedirectResponse
 
+        # Reconstruct the full S3 key from folder and filename
+        if folder:
+            s3_key = f"{folder}/{filename}"
+        else:
+            s3_key = filename
+
         # Verify signature
-        if not verify_s3_key_signature(s3_key, signature):
+        if not signature or not verify_s3_key_signature(s3_key, signature):
             logger.warning(f"Invalid S3 key signature for: {s3_key}")
             raise HTTPException(
                 status_code=403,

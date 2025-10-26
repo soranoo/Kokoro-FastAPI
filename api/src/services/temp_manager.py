@@ -517,8 +517,14 @@ class TempFileWriter:
                 from .s3_helper import create_s3_key_with_signature
                 self.s3_key_data = create_s3_key_with_signature(self.s3_key)
                 
-                # Generate download path with S3 key info
-                self.download_path = f"/download/s3/{self.s3_key_data['key']}?signature={self.s3_key_data['signature']}"
+                # Split folder and filename for cleaner URL structure
+                folder, filename = self.s3_key.split('/', 1) if '/' in self.s3_key else ('', self.s3_key)
+                
+                # Generate download path with folder as query param
+                if folder:
+                    self.download_path = f"/download/s3/{filename}?folder={folder}&signature={self.s3_key_data['signature']}"
+                else:
+                    self.download_path = f"/download/s3/{filename}?signature={self.s3_key_data['signature']}"
                 
                 logger.debug(f"Created S3 temp key: {self.s3_key} for user: {self.user_id}")
             else:
