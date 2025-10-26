@@ -555,12 +555,12 @@ async def download_audio_file(filename: str, request: Request):
 
 
 @router.get("/download/s3/{filename:path}")
-async def download_s3_audio_file(filename: str, request: Request, folder: Optional[str] = None, signature: Optional[str] = None):
+async def download_s3_audio_file(filename: str, request: Request, dir: Optional[str] = None, signature: Optional[str] = None):
     """Download a generated audio file from S3 storage with presigned URL
     
     Args:
-        filename: S3 object filename (without folder prefix)
-        folder: Optional folder prefix for the S3 object
+        filename: S3 object filename (without directory prefix)
+        dir: Optional directory prefix for the S3 object
         signature: HMAC signature for verification
         request: FastAPI request object for accessing app state
         
@@ -575,9 +575,9 @@ async def download_s3_audio_file(filename: str, request: Request, folder: Option
         from ..services.s3_helper import verify_s3_key_signature, generate_s3_presigned_url
         from fastapi.responses import RedirectResponse
 
-        # Reconstruct the full S3 key from folder and filename
-        if folder:
-            s3_key = f"{folder}/{filename}"
+        # Reconstruct the full S3 key from dir and filename
+        if dir:
+            s3_key = f"{dir}/{filename}"
         else:
             s3_key = filename
 

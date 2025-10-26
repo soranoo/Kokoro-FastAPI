@@ -516,13 +516,13 @@ class TempFileWriter:
                 # Generate S3 key data with signature
                 from .s3_helper import create_s3_key_with_signature
                 self.s3_key_data = create_s3_key_with_signature(self.s3_key)
-                
-                # Split folder and filename for cleaner URL structure
-                folder, filename = self.s3_key.split('/', 1) if '/' in self.s3_key else ('', self.s3_key)
-                
-                # Generate download path with folder as query param
-                if folder:
-                    self.download_path = f"/download/s3/{filename}?folder={folder}&signature={self.s3_key_data['signature']}"
+
+                # Split dir and filename for cleaner URL structure
+                dir, filename = self.s3_key.split('/', 1) if '/' in self.s3_key else ('', self.s3_key)
+
+                # Generate download path with dir as query param
+                if dir:
+                    self.download_path = f"/download/s3/{filename}?dir={dir}&signature={self.s3_key_data['signature']}"
                 else:
                     self.download_path = f"/download/s3/{filename}?signature={self.s3_key_data['signature']}"
                 
