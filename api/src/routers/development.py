@@ -246,7 +246,6 @@ async def create_captioned_speech(
         }.get(request.response_format, f"audio/{request.response_format}")
 
         writer = StreamingAudioWriter(request.response_format, sample_rate=24000)
-        logger.debug(f"Return download link: {request.return_download_link}, Return S3 key: {request.return_s3_key}, JSON request: {request.json()}")
         
         # Check if streaming is requested (default for OpenAI client)
         if request.stream:
@@ -398,6 +397,11 @@ async def create_captioned_speech(
                 },
             )
         else:
+            headers = {
+                "Content-Disposition": f"attachment; filename=speech.{request.response_format}",
+                "Cache-Control": "no-cache",  # Prevent caching
+            }
+
             # Generate complete audio using public interface
             audio_data = await tts_service.generate_audio(
                 text=request.input,
@@ -427,6 +431,56 @@ async def create_captioned_speech(
             )
             output = audio_data.output + final.output
 
+            if request.return_download_link or request.return_s3_key:
+                from ..services.temp_manager import TempFileWriter
+                import json
+
+                # Use response_format for temp file (no download_format in CaptionedSpeechRequest)
+                output_format = request.response_format
+                
+                # Get Redis client from app state (may be None)
+                redis_client = getattr(client_request.app.state, 'redis', None)
+                
+                # Get S3 client from app state (may be None)
+                s3_client = getattr(client_request.app.state, 's3', None)
+                
+                # Get user ID from request state (set by JWT middleware)
+                user_id = getattr(client_request.state, 'user_id', None)
+                
+                temp_writer = TempFileWriter(
+                    output_format, 
+                    redis=redis_client, 
+                    user_id=user_id, 
+                    s3_client=s3_client,
+                    return_s3_key=request.return_s3_key
+                )
+                await temp_writer.__aenter__()  # Initialize temp file
+
+                # Add appropriate header based on request
+                if request.return_s3_key and temp_writer.s3_key_data:
+                    # Return S3 key with HMAC signature as JSON
+                    headers["X-S3-Key"] = json.dumps(temp_writer.s3_key_data)
+                elif request.return_download_link and temp_writer.download_path:
+                    # Return download URL
+                    headers["X-Download-Url"] = f"{settings.get_base_url()}{settings.api_url_prefix}/v1{temp_writer.download_path}"
+
+                try:
+                    # Write chunks to temp file
+                    logger.info("Writing chunks to temporary file for download")
+                    await temp_writer.write(output)
+                    # Finalize the temp file
+                    await temp_writer.finalize()
+
+                except Exception as e:
+                    logger.error(f"Error in temp file writing: {e}")
+                    await temp_writer.__aexit__(type(e), e, e.__traceback__)
+                    raise
+                finally:
+                    # Ensure temp writer is closed
+                    if not temp_writer._finalized:
+                        await temp_writer.__aexit__(None, None, None)
+                    writer.close()
+
             base64_output = base64.b64encode(output).decode("utf-8")
 
             content = CaptionedSpeechResponse(
@@ -440,10 +494,7 @@ async def create_captioned_speech(
             return JSONResponse(
                 content=content,
                 media_type="application/json",
-                headers={
-                    "Content-Disposition": f"attachment; filename=speech.{request.response_format}",
-                    "Cache-Control": "no-cache",  # Prevent caching
-                },
+                headers=headers,
             )
 
     except ValueError as e:

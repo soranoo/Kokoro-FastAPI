@@ -113,10 +113,13 @@ class JWTCookieMiddleware(BaseHTTPMiddleware):
         6. Tracks session expiry in Redis for session-based file cleanup
         """
         
-        # ignore if preflight request
         if request.method == "OPTIONS":
+            # if preflight request, ignore
             return await call_next(request)
-        
+        elif request.url.path == "/health":
+            # if health check, skip JWT processing
+            return await call_next(request)
+
         user_id = None
         jwt_secret = settings.get_jwt_secret()
         cookie_name = settings.jwt_cookie_name
