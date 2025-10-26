@@ -112,6 +112,11 @@ class JWTCookieMiddleware(BaseHTTPMiddleware):
         5. Stores user ID in request.state for use by other endpoints
         6. Tracks session expiry in Redis for session-based file cleanup
         """
+        
+        # ignore if preflight request
+        if request.method == "OPTIONS":
+            return await call_next(request)
+        
         user_id = None
         jwt_secret = settings.get_jwt_secret()
         cookie_name = settings.jwt_cookie_name
@@ -201,7 +206,7 @@ class JWTCookieMiddleware(BaseHTTPMiddleware):
                 value=new_token,
                 max_age=settings.jwt_cookie_max_age,
                 httponly=True,  # Prevent JavaScript access for security
-                secure=False,  # Set to True if using HTTPS
+                secure=settings.jwt_cookie_secure,
                 samesite="lax"  # CSRF protection
             )
             logger.debug(f"Set/refreshed JWT cookie for user: {user_id}")

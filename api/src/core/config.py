@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     jwt_cookie_name: str = "user_session"  # Name of the JWT cookie
     jwt_cookie_max_age: int = 86400  # JWT cookie expiry in seconds (default: 24 hours)
     jwt_refresh_threshold: float = 0.5  # Refresh token when remaining life is below this percentage (0.0-1.0, default: 50%)
+    jwt_cookie_secure: bool = False  # Whether to set the Secure flag on JWT cookies (True if using HTTPS)
     
     # API Documentation Settings
     enable_openapi_docs: bool = True  # Whether to enable OpenAPI documentation (/docs, /redoc, /openapi.json)

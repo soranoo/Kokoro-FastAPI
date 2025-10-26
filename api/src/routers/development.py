@@ -246,6 +246,8 @@ async def create_captioned_speech(
         }.get(request.response_format, f"audio/{request.response_format}")
 
         writer = StreamingAudioWriter(request.response_format, sample_rate=24000)
+        logger.debug(f"Return download link: {request.return_download_link}, Return S3 key: {request.return_s3_key}, JSON request: {request.json()}")
+        
         # Check if streaming is requested (default for OpenAI client)
         if request.stream:
             # Create generator but don't start it yet
@@ -254,7 +256,6 @@ async def create_captioned_speech(
             )
 
             # If download link or S3 key requested, wrap generator with temp file writer
-            logger.debug(f"Return download link: {request.return_download_link}, Return S3 key: {request.return_s3_key}, JSON request: {request.json()}")
             if request.return_download_link or request.return_s3_key:
                 from ..services.temp_manager import TempFileWriter
                 import json
