@@ -31,6 +31,13 @@ class WordTimestamp(BaseModel):
     end_time: float = Field(..., description="End time in seconds")
 
 
+class S3KeyInfo(BaseModel):
+    """S3 key and signature information"""
+
+    key: str = Field(..., description="S3 object key (format: 'dir/filename')")
+    signature: str = Field(..., description="HMAC signature for S3 key verification")
+
+
 class CaptionedSpeechResponse(BaseModel):
     """Response schema for captioned speech endpoint"""
 
@@ -38,6 +45,14 @@ class CaptionedSpeechResponse(BaseModel):
     audio_format: str = Field(..., description="The format of the output audio")
     timestamps: Optional[List[WordTimestamp]] = Field(
         ..., description="Word-level timestamps"
+    )
+    download_url: Optional[str] = Field(
+        default=None,
+        description="Download URL for the audio file if return_download_link was requested"
+    )
+    s3_key_info: Optional[S3KeyInfo] = Field(
+        default=None,
+        description="S3 key and signature information if return_s3_key was requested"
     )
 
 

@@ -22,6 +22,7 @@ from ..services.tts_service import TTSService
 from ..structures import (
     CaptionedSpeechRequest,
     CaptionedSpeechResponse,
+    S3KeyInfo,
     WordTimestamp,
 )
 from ..structures.custom_responses import JSONStreamingResponse
@@ -285,15 +286,6 @@ async def create_captioned_speech(
                     "Transfer-Encoding": "chunked",
                 }
 
-                # Add appropriate header based on request
-                if request.return_s3_key and temp_writer.s3_key_data:
-                    # Return S3 key with HMAC signature as JSON
-                    headers["X-S3-Key"] = json.dumps(temp_writer.s3_key_data)
-                elif request.return_download_link and temp_writer.download_path:
-                    # Return download URL
-                    full_download_url = f"{settings.get_base_url()}{settings.api_url_prefix}/v1{temp_writer.download_path}"
-                    headers["X-Download-Url"] = full_download_url
-
                 # Create async generator for streaming
                 async def dual_output():
                     try:
@@ -317,11 +309,24 @@ async def create_captioned_speech(
                                 else:
                                     chunk_data.word_timestamps = []
 
-                                yield CaptionedSpeechResponse(
-                                    audio=base64_chunk,
-                                    audio_format=content_type,
-                                    timestamps=chunk_data.word_timestamps,
-                                )
+                                # Build response with download info
+                                response_data = {
+                                    "audio": base64_chunk,
+                                    "audio_format": content_type,
+                                    "timestamps": chunk_data.word_timestamps,
+                                }
+                                
+                                # Add download info if available
+                                if request.return_s3_key and temp_writer.s3_key_data:
+                                    response_data["s3_key_info"] = S3KeyInfo(
+                                        key=temp_writer.s3_key_data['key'],
+                                        signature=temp_writer.s3_key_data['signature']
+                                    )
+                                elif request.return_download_link and temp_writer.download_path:
+                                    full_download_url = f"{settings.get_base_url()}{settings.api_url_prefix}/v1{temp_writer.download_path}"
+                                    response_data["download_url"] = full_download_url
+
+                                yield CaptionedSpeechResponse(**response_data)
                             else:
                                 if (
                                     chunk_data.word_timestamps is not None
@@ -456,14 +461,6 @@ async def create_captioned_speech(
                 )
                 await temp_writer.__aenter__()  # Initialize temp file
 
-                # Add appropriate header based on request
-                if request.return_s3_key and temp_writer.s3_key_data:
-                    # Return S3 key with HMAC signature as JSON
-                    headers["X-S3-Key"] = json.dumps(temp_writer.s3_key_data)
-                if request.return_download_link and temp_writer.download_path:
-                    # Return download URL
-                    headers["X-Download-Url"] = f"{settings.get_base_url()}{settings.api_url_prefix}/v1{temp_writer.download_path}"
-
                 try:
                     # Write chunks to temp file
                     logger.info("Writing chunks to temporary file for download")
@@ -483,11 +480,25 @@ async def create_captioned_speech(
 
             base64_output = base64.b64encode(output).decode("utf-8")
 
-            content = CaptionedSpeechResponse(
-                audio=base64_output,
-                audio_format=content_type,
-                timestamps=audio_data.word_timestamps,
-            ).model_dump()
+            # Build response with download info
+            response_data = {
+                "audio": base64_output,
+                "audio_format": content_type,
+                "timestamps": audio_data.word_timestamps,
+            }
+            
+            # Add download info if temp file was created
+            if request.return_download_link or request.return_s3_key:
+                if request.return_s3_key and temp_writer.s3_key_data:
+                    response_data["s3_key_info"] = S3KeyInfo(
+                        key=temp_writer.s3_key_data['key'],
+                        signature=temp_writer.s3_key_data['signature']
+                    )
+                if request.return_download_link and temp_writer.download_path:
+                    full_download_url = f"{settings.get_base_url()}{settings.api_url_prefix}/v1{temp_writer.download_path}"
+                    response_data["download_url"] = full_download_url
+
+            content = CaptionedSpeechResponse(**response_data).model_dump()
 
             writer.close()
 

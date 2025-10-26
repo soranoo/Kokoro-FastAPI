@@ -785,6 +785,28 @@ TEMP_FILE_TTL_SECONDS=3600
 **API Usage - Two Methods:**
 
 **Method 1: Server-side presigned URL (return_download_link)**
+
+For endpoints that return JSON (e.g., `/dev/captioned_speech`):
+```python
+import requests
+
+response = requests.post(
+    "http://localhost:8880/dev/captioned_speech",
+    json={
+        "input": "Hello world!",
+        "voice": "af_bella",
+        "return_download_link": True,  # Server handles presigned URL generation
+        "stream": False
+    }
+)
+
+# Download URL is in the response body
+data = response.json()
+download_url = data.get("download_url")
+# Access the download URL - server will redirect to S3 presigned URL
+```
+
+For endpoints that return binary audio (e.g., `/v1/audio/speech`):
 ```python
 import requests
 
@@ -793,16 +815,44 @@ response = requests.post(
     json={
         "input": "Hello world!",
         "voice": "af_bella",
-        "return_download_link": true  # Server handles presigned URL generation
+        "return_download_link": True  # Server handles presigned URL generation
     }
 )
 
-# Get download URL from header (server-side presigned)
+# Download URL is in response header
 download_url = response.headers.get("X-Download-Url")
 # Access the download URL - server will redirect to S3 presigned URL
 ```
 
 **Method 2: Client-side S3 key with signature (return_s3_key)**
+
+For endpoints that return JSON (e.g., `/dev/captioned_speech`):
+```python
+import requests
+
+response = requests.post(
+    "http://localhost:8880/dev/captioned_speech",
+    json={
+        "input": "Hello world!",
+        "voice": "af_bella",
+        "return_s3_key": True,  # Get S3 key with HMAC signature
+        "stream": False
+    }
+)
+
+# S3 key data is in the response body as an object
+data = response.json()
+s3_key_info = data.get("s3_key_info")  # {"key": "temp/abc123.mp3", "signature": "hmac_sha256_hex"}
+s3_key = s3_key_info["key"]
+s3_signature = s3_key_info["signature"]
+
+# Construct download URL
+filename = s3_key.split('/')[-1]
+dir = s3_key.split('/')[0]
+download_url = f"http://localhost:8880/v1/download/s3/{filename}?dir={dir}&signature={s3_signature}"
+```
+
+For endpoints that return binary audio (e.g., `/v1/audio/speech`):
 ```python
 import requests
 import json
@@ -812,16 +862,20 @@ response = requests.post(
     json={
         "input": "Hello world!",
         "voice": "af_bella",
-        "return_s3_key": true  # Get S3 key with HMAC signature
+        "return_s3_key": True  # Get S3 key with HMAC signature
     }
 )
 
-# Get S3 key data from header
+# S3 key data is in response header
 s3_key_data = json.loads(response.headers.get("X-S3-Key"))
 # s3_key_data = {"key": "temp/abc123.mp3", "signature": "hmac_sha256_hex"}
 
-# Client can now use the key + signature to request presigned URL from server
-# or verify the signature and generate presigned URL client-side if they have S3 credentials
+# Construct download URL
+s3_key = s3_key_data["key"]
+signature = s3_key_data["signature"]
+filename = s3_key.split('/')[-1]
+dir = s3_key.split('/')[0]
+download_url = f"http://localhost:8880/v1/download/s3/{filename}?dir={dir}&signature={signature}"
 ```
 
 **Security:**
