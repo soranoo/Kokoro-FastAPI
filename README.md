@@ -798,7 +798,7 @@ response = requests.post(
 )
 
 # Get download URL from header (server-side presigned)
-download_url = response.headers.get("X-Download-Path")
+download_url = response.headers.get("X-Download-Url")
 # Access the download URL - server will redirect to S3 presigned URL
 ```
 

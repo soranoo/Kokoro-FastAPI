@@ -274,7 +274,7 @@ async def create_speech(
                 elif request.return_download_link and temp_writer.download_path:
                     # Return download URL
                     full_download_url = f"{settings.get_base_url()}{settings.api_url_prefix}/v1{temp_writer.download_path}"
-                    headers["X-Download-Path"] = full_download_url
+                    headers["X-Download-Url"] = full_download_url
 
                 # Add header to indicate if temp file writing is available
                 if temp_writer._write_error:
@@ -396,7 +396,7 @@ async def create_speech(
                     headers["X-S3-Key"] = json.dumps(temp_writer.s3_key_data)
                 elif request.return_download_link and temp_writer.download_path:
                     # Return download URL
-                    headers["X-Download-Path"] = f"{settings.get_base_url()}{settings.api_url_prefix}/v1{temp_writer.download_path}"
+                    headers["X-Download-Url"] = f"{settings.get_base_url()}{settings.api_url_prefix}/v1{temp_writer.download_path}"
 
                 try:
                     # Write chunks to temp file

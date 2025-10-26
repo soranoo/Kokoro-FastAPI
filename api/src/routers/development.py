@@ -254,6 +254,7 @@ async def create_captioned_speech(
             )
 
             # If download link or S3 key requested, wrap generator with temp file writer
+            logger.debug(f"Return download link: {request.return_download_link}, Return S3 key: {request.return_s3_key}, JSON request: {request.json()}")
             if request.return_download_link or request.return_s3_key:
                 from ..services.temp_manager import TempFileWriter
                 import json
@@ -291,7 +292,7 @@ async def create_captioned_speech(
                 elif request.return_download_link and temp_writer.download_path:
                     # Return download URL
                     full_download_url = f"{settings.get_base_url()}{settings.api_url_prefix}/v1{temp_writer.download_path}"
-                    headers["X-Download-Path"] = full_download_url
+                    headers["X-Download-Url"] = full_download_url
 
                 # Create async generator for streaming
                 async def dual_output():

@@ -86,17 +86,15 @@ async def lifespan(app: FastAPI):
     # Initialize S3 client if configured
     s3_client = None
     if settings.enable_s3_storage:
-        try:
-            s3_client = settings.get_s3_client()
-            if s3_client:
-                # Test S3 connection by listing bucket
-                s3_client.head_bucket(Bucket=settings.s3_bucket_name)
-                logger.info(f"✅ S3 connected: {settings.s3_bucket_name}")
-            else:
-                logger.warning("S3 storage enabled but client initialization failed")
-        except Exception as e:
-            logger.warning(f"Failed to connect to S3, falling back to local storage: {e}")
-            s3_client = None
+        s3_client = settings.get_s3_client()
+        if s3_client:
+            # Test S3 connection by listing bucket
+            s3_client.head_bucket(Bucket=settings.s3_bucket_name)
+            logger.info(f"✅ S3 connected: {settings.s3_bucket_name}")
+        else:
+            logger.warning("S3 storage enabled but client initialization failed")
+            raise Exception("S3 client initialization failed")
+            
     
     # Store S3 client in app state for use in endpoints
     app.state.s3 = s3_client

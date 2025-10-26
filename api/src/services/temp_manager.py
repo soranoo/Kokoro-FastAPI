@@ -54,6 +54,11 @@ async def register_temp_file(redis: Optional["aioredis.Redis"], file_path: str, 
             ownership_key = f"{settings.temp_redis_zset_key}:ownership"
             await redis.hset(ownership_key, file_path, user_id)
             await redis.expire(ownership_key, ttl_seconds + 3600)  # Add buffer time
+            
+            # Track file under user's session for session-based cleanup
+            user_files_key = f"{settings.temp_redis_zset_key}:user_files:{user_id}"
+            await redis.sadd(user_files_key, file_path)
+            await redis.expire(user_files_key, ttl_seconds + 3600)  # Add buffer time
         
         # Store S3 flag in hash to track storage type
         storage_type_key = f"{settings.temp_redis_zset_key}:storage_type"
@@ -77,15 +82,24 @@ async def remove_temp_registration(redis: Optional["aioredis.Redis"], file_path:
         return
     
     try:
+        # Get user_id before removing ownership record
+        ownership_key = f"{settings.temp_redis_zset_key}:ownership"
+        user_id = await redis.hget(ownership_key, file_path)
+        
+        # Remove from main sorted set
         await redis.zrem(settings.temp_redis_zset_key, file_path)
         
-        # Also remove ownership record
-        ownership_key = f"{settings.temp_redis_zset_key}:ownership"
+        # Remove ownership record
         await redis.hdel(ownership_key, file_path)
         
-        # Also remove storage type record
+        # Remove storage type record
         storage_type_key = f"{settings.temp_redis_zset_key}:storage_type"
         await redis.hdel(storage_type_key, file_path)
+        
+        # Remove from user's file set
+        if user_id:
+            user_files_key = f"{settings.temp_redis_zset_key}:user_files:{user_id}"
+            await redis.srem(user_files_key, file_path)
         
         logger.debug(f"Removed temp file registration from Redis: {file_path}")
     except Exception as e:
@@ -262,9 +276,16 @@ async def redis_periodic_cleanup_loop(redis: "aioredis.Redis") -> None:
     
     while True:
         try:
+            # Clean up expired files
             deleted_count = await redis_cleanup_once(redis, batch_size)
             if deleted_count > 0:
                 logger.info(f"Redis cleanup cycle deleted {deleted_count} files")
+            
+            # Clean up files from expired sessions
+            session_deleted_count = await cleanup_expired_sessions(redis)
+            if session_deleted_count > 0:
+                logger.info(f"Session cleanup deleted {session_deleted_count} files from expired sessions")
+                
         except asyncio.CancelledError:
             logger.info("Redis cleanup loop cancelled")
             break
@@ -272,6 +293,117 @@ async def redis_periodic_cleanup_loop(redis: "aioredis.Redis") -> None:
             logger.error(f"Error in Redis cleanup loop: {e}")
         
         await asyncio.sleep(interval)
+
+
+async def track_user_session(redis: Optional["aioredis.Redis"], user_id: str, session_expiry_timestamp: float) -> None:
+    """Track a user session expiry in Redis for session-based cleanup
+    
+    Args:
+        redis: Redis client (None if Redis not configured)
+        user_id: User ID from JWT
+        session_expiry_timestamp: Unix timestamp when session expires
+    """
+    if not redis:
+        return
+    
+    try:
+        session_key = f"{settings.temp_redis_zset_key}:sessions"
+        await redis.zadd(session_key, {user_id: session_expiry_timestamp})
+        logger.debug(f"Tracked session for user {user_id} (expires at {session_expiry_timestamp})")
+    except Exception as e:
+        logger.warning(f"Failed to track user session in Redis: {e}")
+
+
+async def cleanup_expired_sessions(redis: "aioredis.Redis") -> int:
+    """Clean up all files for sessions that have expired
+    
+    Args:
+        redis: Redis client
+        
+    Returns:
+        Number of files cleaned up
+    """
+    try:
+        current_time = time.time()
+        session_key = f"{settings.temp_redis_zset_key}:sessions"
+        
+        # Find expired sessions
+        expired_user_ids = await redis.zrangebyscore(session_key, 0, current_time)
+        
+        if not expired_user_ids:
+            return 0
+        
+        deleted_count = 0
+        storage_type_key = f"{settings.temp_redis_zset_key}:storage_type"
+        ownership_key = f"{settings.temp_redis_zset_key}:ownership"
+        
+        # Get S3 client if needed
+        s3_client = None
+        if settings.enable_s3_storage:
+            s3_client = settings.get_s3_client()
+        
+        for user_id_bytes in expired_user_ids:
+            user_id = user_id_bytes.decode("utf-8") if isinstance(user_id_bytes, bytes) else user_id_bytes
+            user_files_key = f"{settings.temp_redis_zset_key}:user_files:{user_id}"
+            
+            # Get all files owned by this user
+            file_paths = await redis.smembers(user_files_key)
+            
+            if not file_paths:
+                # Clean up session tracking
+                await redis.zrem(session_key, user_id)
+                await redis.delete(user_files_key)
+                continue
+            
+            # Delete each file
+            for file_path_bytes in file_paths:
+                file_path = file_path_bytes.decode("utf-8") if isinstance(file_path_bytes, bytes) else file_path_bytes
+                
+                # Get storage type
+                storage_type = await redis.hget(storage_type_key, file_path)
+                storage_type = storage_type or "local"
+                
+                try:
+                    if storage_type == "s3":
+                        # Delete from S3
+                        if s3_client:
+                            from .s3_helper import delete_from_s3
+                            if await delete_from_s3(s3_client, file_path):
+                                logger.info(f"Deleted S3 file for expired session {user_id}: {file_path}")
+                                deleted_count += 1
+                            else:
+                                logger.warning(f"Failed to delete S3 file for expired session {user_id}: {file_path}")
+                        else:
+                            logger.warning(f"S3 client not available for deleting: {file_path}")
+                    else:
+                        # Delete from local filesystem
+                        import aiofiles.os
+                        if await aiofiles.os.path.exists(file_path):
+                            await aiofiles.os.remove(file_path)
+                            logger.info(f"Deleted file for expired session {user_id}: {file_path}")
+                            deleted_count += 1
+                        else:
+                            logger.debug(f"File already deleted for expired session {user_id}: {file_path}")
+                    
+                    # Remove from Redis tracking
+                    await redis.zrem(settings.temp_redis_zset_key, file_path)
+                    await redis.hdel(ownership_key, file_path)
+                    await redis.hdel(storage_type_key, file_path)
+                    
+                except Exception as e:
+                    logger.warning(f"Failed to delete file {file_path} for expired session {user_id}: {e}")
+            
+            # Clean up session tracking
+            await redis.zrem(session_key, user_id)
+            await redis.delete(user_files_key)
+            
+            logger.info(f"Cleaned up expired session {user_id}: {deleted_count} files deleted")
+        
+        return deleted_count
+        
+    except Exception as e:
+        logger.error(f"Session cleanup failed: {e}")
+        return 0
 
 
 async def cleanup_temp_files() -> None:

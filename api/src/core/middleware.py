@@ -110,11 +110,13 @@ class JWTCookieMiddleware(BaseHTTPMiddleware):
         3. If yes, validates the JWT and extracts user ID
         4. Automatically refreshes the token if it's close to expiring
         5. Stores user ID in request.state for use by other endpoints
+        6. Tracks session expiry in Redis for session-based file cleanup
         """
         user_id = None
         jwt_secret = settings.get_jwt_secret()
         cookie_name = settings.jwt_cookie_name
         should_refresh = False
+        session_expiry_timestamp = None
         
         # Try to get existing JWT cookie
         jwt_token = request.cookies.get(cookie_name)
@@ -132,6 +134,7 @@ class JWTCookieMiddleware(BaseHTTPMiddleware):
                 if exp:
                     current_time = datetime.utcnow()
                     expiry_time = datetime.utcfromtimestamp(exp)
+                    session_expiry_timestamp = exp
                     
                     # Check if token is expired
                     if expiry_time < current_time:
@@ -184,6 +187,7 @@ class JWTCookieMiddleware(BaseHTTPMiddleware):
         if should_refresh or not jwt_token:
             # Create new JWT token
             expiry = datetime.utcnow() + timedelta(seconds=settings.jwt_cookie_max_age)
+            session_expiry_timestamp = expiry.timestamp()
             token_payload = {
                 "user_id": user_id,
                 "exp": expiry,
@@ -202,5 +206,14 @@ class JWTCookieMiddleware(BaseHTTPMiddleware):
             )
             logger.debug(f"Set/refreshed JWT cookie for user: {user_id}")
         
+        # Track session expiry in Redis for session-based cleanup
+        if session_expiry_timestamp and hasattr(request.app.state, 'redis') and request.app.state.redis:
+            try:
+                from ..services.temp_manager import track_user_session
+                await track_user_session(request.app.state.redis, user_id, session_expiry_timestamp)
+            except Exception as e:
+                logger.warning(f"Failed to track session in Redis: {e}")
+        
         return response
+
 

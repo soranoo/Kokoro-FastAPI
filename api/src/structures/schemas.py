@@ -107,7 +107,7 @@ class OpenAISpeechRequest(BaseModel):
     )
     return_download_link: bool = Field(
         default=False,
-        description="If true, returns a download link in X-Download-Path header after streaming completes",
+        description="If true, returns a download link in X-Download-Url header after streaming completes",
     )
     return_s3_key: bool = Field(
         default=False,
@@ -429,7 +429,7 @@ class CaptionedSpeechRequest(BaseModel):
     )
     return_download_link: bool = Field(
         default=False,
-        description="If true, returns a download link in X-Download-Path header after streaming completes",
+        description="If true, returns a download link in X-Download-Url header after streaming completes",
     )
     return_s3_key: bool = Field(
         default=False,
