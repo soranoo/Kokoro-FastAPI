@@ -40,7 +40,9 @@ dependencies = [
     "phonemizer-fork>=3.3.2",
     "av>=14.2.0",
     "text2num>=2.5.1",
-    "redis>=6.4.0",
+    "redis>=7.0.0",
+    "pyjwt>=2.10.0",
+    "boto3>=1.35.0",
 ]
 
 [project.optional-dependencies]

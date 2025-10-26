@@ -5,7 +5,7 @@ import json
 import os
 import re
 import tempfile
-from typing import AsyncGenerator, Dict, List, Tuple, Union
+from typing import AsyncGenerator, Dict, List, Optional, Tuple, Union
 from urllib import response
 
 import aiofiles
@@ -14,6 +14,7 @@ import torch
 from fastapi import APIRouter, Header, HTTPException, Request, Response
 from fastapi.responses import FileResponse, StreamingResponse
 from loguru import logger
+from botocore.exceptions import ClientError
 
 from ..core.config import settings
 from ..inference.base import AudioChunk
@@ -233,9 +234,10 @@ async def create_speech(
                 tts_service, request, client_request, writer
             )
 
-            # If download link requested, wrap generator with temp file writer
-            if request.return_download_link:
+            # If download link or S3 key requested, wrap generator with temp file writer
+            if request.return_download_link or request.return_s3_key:
                 from ..services.temp_manager import TempFileWriter
+                import json
 
                 # Use download_format if specified, otherwise use response_format
                 output_format = request.download_format or request.response_format
@@ -243,23 +245,37 @@ async def create_speech(
                 # Get Redis client from app state (may be None)
                 redis_client = getattr(client_request.app.state, 'redis', None)
                 
-                temp_writer = TempFileWriter(output_format, redis=redis_client)
+                # Get S3 client from app state (may be None)
+                s3_client = getattr(client_request.app.state, 's3', None)
+                
+                # Get user ID from request state (set by JWT middleware)
+                user_id = getattr(client_request.state, 'user_id', None)
+                
+                temp_writer = TempFileWriter(
+                    output_format, 
+                    redis=redis_client, 
+                    user_id=user_id, 
+                    s3_client=s3_client,
+                    return_s3_key=request.return_s3_key
+                )
                 await temp_writer.__aenter__()  # Initialize temp file
 
-                # Get download path immediately after temp file creation
-                download_path = temp_writer.download_path
-                
-                # Construct full URL with base URL and prefix
-                full_download_url = f"{settings.get_base_url()}{settings.api_url_prefix}/v1{download_path}"
-
-                # Create response headers with download path
+                # Create response headers
                 headers = {
                     "Content-Disposition": f"attachment; filename=speech.{output_format}",
                     "X-Accel-Buffering": "no",
                     "Cache-Control": "no-cache",
                     "Transfer-Encoding": "chunked",
-                    "X-Download-Path": full_download_url,
                 }
+
+                # Add appropriate header based on request
+                if request.return_s3_key and temp_writer.s3_key_data:
+                    # Return S3 key with HMAC signature as JSON
+                    headers["X-S3-Key"] = json.dumps(temp_writer.s3_key_data)
+                elif request.return_download_link and temp_writer.download_path:
+                    # Return download URL
+                    full_download_url = f"{settings.get_base_url()}{settings.api_url_prefix}/v1{temp_writer.download_path}"
+                    headers["X-Download-Url"] = full_download_url
 
                 # Add header to indicate if temp file writing is available
                 if temp_writer._write_error:
@@ -350,8 +366,9 @@ async def create_speech(
             )
             output = audio_data.output + final.output
 
-            if request.return_download_link:
+            if request.return_download_link or request.return_s3_key:
                 from ..services.temp_manager import TempFileWriter
+                import json
 
                 # Use download_format if specified, otherwise use response_format
                 output_format = request.download_format or request.response_format
@@ -359,16 +376,32 @@ async def create_speech(
                 # Get Redis client from app state (may be None)
                 redis_client = getattr(client_request.app.state, 'redis', None)
                 
-                temp_writer = TempFileWriter(output_format, redis=redis_client)
+                # Get S3 client from app state (may be None)
+                s3_client = getattr(client_request.app.state, 's3', None)
+                
+                # Get user ID from request state (set by JWT middleware)
+                user_id = getattr(client_request.state, 'user_id', None)
+                
+                temp_writer = TempFileWriter(
+                    output_format, 
+                    redis=redis_client, 
+                    user_id=user_id, 
+                    s3_client=s3_client,
+                    return_s3_key=request.return_s3_key
+                )
                 await temp_writer.__aenter__()  # Initialize temp file
 
-                # Get download path immediately after temp file creation
-                download_path = temp_writer.download_path
-                headers["X-Download-Path"] = f"{settings.get_base_url()}{settings.api_url_prefix}/v1{download_path}"
+                # Add appropriate header based on request
+                if request.return_s3_key and temp_writer.s3_key_data:
+                    # Return S3 key with HMAC signature as JSON
+                    headers["X-S3-Key"] = json.dumps(temp_writer.s3_key_data)
+                elif request.return_download_link and temp_writer.download_path:
+                    # Return download URL
+                    headers["X-Download-Url"] = f"{settings.get_base_url()}{settings.api_url_prefix}/v1{temp_writer.download_path}"
 
                 try:
                     # Write chunks to temp file
-                    logger.info("Writing chunks to tempory file for download")
+                    logger.info("Writing chunks to temporary file for download")
                     await temp_writer.write(output)
                     # Finalize the temp file
                     await temp_writer.finalize()
@@ -444,7 +477,7 @@ async def create_speech(
 
 @router.get("/download/{filename}")
 async def download_audio_file(filename: str, request: Request):
-    """Download a generated audio file from temp storage
+    """Download a generated audio file from local temp storage
     
     Args:
         filename: Name of the audio file to download
@@ -454,19 +487,44 @@ async def download_audio_file(filename: str, request: Request):
         FileResponse with the audio file
         
     Raises:
-        HTTPException: If file not found or server error
+        HTTPException: If file not found, access denied, or server error
     """
     try:
         from ..core.paths import _find_file, get_content_type
-        from ..services.temp_manager import remove_temp_registration
+        from ..services.temp_manager import remove_temp_registration, verify_file_ownership
+
+        # Get user ID from request state (set by JWT middleware)
+        user_id = getattr(request.state, 'user_id', None)
+        if not user_id:
+            logger.warning(f"No user ID found in request state for download: {filename}")
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error": "access_denied",
+                    "message": "User session not found",
+                    "type": "authentication_error",
+                },
+            )
 
         # Search for file in temp directory
         file_path = await _find_file(
             filename=filename, search_paths=[settings.temp_file_dir]
         )
 
-        # Remove temp file registration from Redis when download starts
+        # Verify user owns this file (Redis-based ownership check)
         redis_client = getattr(request.app.state, 'redis', None)
+        if not await verify_file_ownership(redis_client, file_path, user_id):
+            logger.warning(f"User {user_id} attempted unauthorized download of {filename}")
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error": "access_denied",
+                    "message": "You do not have permission to access this file",
+                    "type": "authorization_error",
+                },
+            )
+
+        # Remove temp file registration from Redis when download starts
         if redis_client:
             await remove_temp_registration(redis_client, file_path)
 
@@ -482,7 +540,6 @@ async def download_audio_file(filename: str, request: Request):
                 "Content-Disposition": f"attachment; filename={filename}",
             },
         )
-
     except Exception as e:
         logger.error(f"Error serving download file {filename}: {e}")
         raise HTTPException(
@@ -493,6 +550,146 @@ async def download_audio_file(filename: str, request: Request):
                 "type": "server_error",
             },
         )
+
+
+@router.get("/download/s3/{filename:path}")
+async def download_s3_audio_file(filename: str, request: Request, dir: Optional[str] = None, signature: Optional[str] = None):
+    """Download a generated audio file from S3 storage with presigned URL
+    
+    Args:
+        filename: S3 object filename (without directory prefix)
+        dir: Optional directory prefix for the S3 object
+        signature: HMAC signature for verification
+        request: FastAPI request object for accessing app state
+        
+    Returns:
+        Redirect to presigned S3 URL
+        
+    Raises:
+        HTTPException: If file not found, access denied, signature invalid, or server error
+    """
+    try:
+        from ..services.temp_manager import remove_temp_registration, verify_file_ownership
+        from ..services.s3_helper import verify_s3_key_signature, generate_s3_presigned_url
+        from fastapi.responses import RedirectResponse
+
+        # Reconstruct the full S3 key from dir and filename
+        s3_key = f"{dir}/{filename}" if dir else filename
+
+        # Verify signature
+        if not signature or not verify_s3_key_signature(s3_key, signature):
+            logger.warning(f"Invalid S3 key signature for: {s3_key}")
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error": "access_denied",
+                    "message": "Invalid signature",
+                    "type": "authorization_error",
+                },
+            )
+
+        # Get user ID from request state (set by JWT middleware)
+        user_id = getattr(request.state, 'user_id', None)
+        if not user_id:
+            logger.warning(f"No user ID found in request state for S3 download: {s3_key}")
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error": "access_denied",
+                    "message": "User session not found",
+                    "type": "authentication_error",
+                },
+            )
+
+        # Verify user owns this file (Redis-based ownership check)
+        redis_client = getattr(request.app.state, 'redis', None)
+        if not await verify_file_ownership(redis_client, s3_key, user_id):
+            logger.warning(f"User {user_id} attempted unauthorized S3 download of {s3_key}")
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error": "access_denied",
+                    "message": "You do not have permission to access this file",
+                    "type": "authorization_error",
+                },
+            )
+
+        # Remove temp file registration from Redis when download starts
+        if redis_client:
+            await remove_temp_registration(redis_client, s3_key)
+
+        # Get S3 client and generate presigned URL
+        s3_client = getattr(request.app.state, 's3', None)
+        if not s3_client:
+            logger.error("S3 client not configured")
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error": "server_error",
+                    "message": "S3 storage not configured",
+                    "type": "server_error",
+                },
+            )
+
+        # Check if the S3 object exists before generating the presigned URL
+        try:
+            s3_client.head_object(Bucket=settings.s3_bucket_name, Key=s3_key)
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'NoSuchKey':
+                logger.error(f"S3 object {s3_key} does not exist in bucket {settings.s3_bucket_name}")
+                raise HTTPException(
+                    status_code=404,
+                    detail={
+                        "error": "not_found",
+                        "message": f"S3 object {s3_key} not found",
+                        "type": "storage_error",
+                    },
+                )
+            else:
+                logger.error(f"Error checking S3 object existence: {e}")
+                raise HTTPException(
+                    status_code=500,
+                    detail={
+                        "error": "server_error",
+                        "message": "Error checking S3 object existence",
+                        "type": "server_error",
+                    },
+                )
+        except Exception as e:
+            logger.error(f"Error checking S3 object existence: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error": "server_error",
+                    "message": "Error checking S3 object existence",
+                    "type": "server_error",
+                },
+            )
+
+        presigned_url = generate_s3_presigned_url(s3_client, s3_key)
+        if not presigned_url:
+            logger.error(f"Failed to generate presigned URL for {s3_key}")
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error": "server_error",
+                    "message": "Failed to generate download URL",
+                    "type": "server_error",
+                },
+            )
+
+        # Redirect to presigned URL
+        return RedirectResponse(url=presigned_url, status_code=302)
+    except Exception as e:
+        logger.error(f"Error serving S3 download file {s3_key}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "server_error",
+                "message": "Failed to serve audio file from S3",
+                "type": "server_error",
+            },
+        ) from e
 
 
 @router.get("/models", response_model=ModelsListResponse)
@@ -592,8 +789,6 @@ async def retrieve_model(model: str) -> ModelObject:
 
         # Return the specific model
         return models[model]
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"Error retrieving model {model}: {str(e)}")
         raise HTTPException(

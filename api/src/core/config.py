@@ -13,9 +13,17 @@ class Settings(BaseSettings):
     api_url_prefix: str = ""  # Optional URL prefix for all routes (e.g., "/api", "/v2")
     server_base_url: str | None = None  # Base URL for generating full download links (e.g., "http://localhost:8880")
     
+    # Logging Settings
+    log_level: str = "INFO"  # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+    
     # Security Settings
     hide_server_header: bool = True  # Hide server header from responses
     api_bearer_token: str | None = None  # Optional Bearer token for authentication
+    jwt_secret_key: str | None = None  # Secret key for JWT token generation (auto-generated if not set)
+    jwt_cookie_name: str = "user_session"  # Name of the JWT cookie
+    jwt_cookie_max_age: int = 86400  # JWT cookie expiry in seconds (default: 24 hours)
+    jwt_refresh_threshold: float = 0.5  # Refresh token when remaining life is below this percentage (0.0-1.0, default: 50%)
+    jwt_cookie_secure: bool = False  # Whether to set the Secure flag on JWT cookies (True if using HTTPS)
     
     # API Documentation Settings
     enable_openapi_docs: bool = True  # Whether to enable OpenAPI documentation (/docs, /redoc, /openapi.json)
@@ -84,6 +92,16 @@ class Settings(BaseSettings):
     temp_file_ttl_seconds: int = 3600  # TTL for temp files in seconds (default: 1 hour)
     temp_redis_cleanup_interval_seconds: int = 60  # Cleanup interval in seconds
     temp_cleaner_batch_size: int = 100  # Number of files to clean per batch
+    
+    # S3 Settings for Temp File Storage
+    enable_s3_storage: bool = False  # Enable S3 storage instead of local filesystem
+    s3_endpoint: str | None = None  # S3 endpoint URL (e.g., https://s3.amazonaws.com or https://nyc3.digitaloceanspaces.com)
+    s3_region: str | None = None  # S3 region (e.g., us-east-1, nyc3)
+    s3_bucket_name: str | None = None  # S3 bucket name
+    s3_access_key: str | None = None  # S3 access key ID
+    s3_access_secret: str | None = None  # S3 secret access key
+    s3_signature_secret: str | None = None  # Secret key for HMAC signature generation
+    s3_signed_url_expiry: int = 3600  # S3 signed URL expiry in seconds (default: 1 hour)
 
     class Config:
         env_file = ".env"
@@ -144,6 +162,78 @@ class Settings(BaseSettings):
             from loguru import logger
             logger.error(f"Failed to create Redis client: {e}")
             return None
+    
+    def get_jwt_secret(self) -> str:
+        """Get JWT secret key, generating one if not configured
+        
+        Returns:
+            JWT secret key string
+        """
+        import secrets
+        
+        if self.jwt_secret_key:
+            return self.jwt_secret_key
+        
+        # Auto-generate a secret key if not provided
+        # In production, this should be set in environment variables
+        from loguru import logger
+        logger.warning("JWT_SECRET_KEY not set, using auto-generated key (not recommended for production)")
+        return secrets.token_urlsafe(32)
+    
+    def get_s3_client(self):
+        """Get configured S3 client (boto3) for temp file storage
+        
+        Returns None if S3 is not configured or not available
+        """
+        if not self.enable_s3_storage:
+            return None
+        
+        # Validate required S3 settings
+        if not all([
+            self.s3_endpoint,
+            self.s3_region,
+            self.s3_bucket_name,
+            self.s3_access_key,
+            self.s3_access_secret
+        ]):
+            from loguru import logger
+            logger.error("S3 storage enabled but missing required configuration")
+            return None
+        
+        try:
+            import boto3
+            
+            # Create S3 client
+            return boto3.client(
+                's3',
+                endpoint_url=self.s3_endpoint,
+                region_name=self.s3_region,
+                aws_access_key_id=self.s3_access_key,
+                aws_secret_access_key=self.s3_access_secret
+            )
+        except Exception as e:
+            from loguru import logger
+            logger.error(f"Failed to create S3 client: {e}")
+            return None
+    
+    def get_s3_signature_secret(self) -> str | None:
+        """Get S3 signature secret key for HMAC signing
+        
+        Returns:
+            S3 signature secret key string or None if not configured
+        """
+        import secrets
+        
+        if not self.enable_s3_storage:
+            return None
+        
+        if self.s3_signature_secret:
+            return self.s3_signature_secret
+        
+        # Auto-generate a secret key if not provided
+        from loguru import logger
+        logger.warning("S3_SIGNATURE_SECRET not set, using auto-generated key (not recommended for production)")
+        return secrets.token_urlsafe(32)
 
 
 settings = Settings()

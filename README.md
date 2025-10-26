@@ -520,6 +520,19 @@ Useful for debugging resource exhaustion or performance issues.
 
 The API can be configured using environment variables. Create a `.env` file in your project root or set these variables in your environment:
 
+### Logging Settings
+
+```env
+# Set the logging level for the application (default: INFO)
+# Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+LOG_LEVEL=INFO
+```
+
+**Use cases:**
+- Set to `DEBUG` for detailed troubleshooting and development
+- Set to `INFO` for normal production logging
+- Set to `WARNING` or `ERROR` to reduce log verbosity in production
+
 ### Security Settings
 
 ```env
@@ -530,7 +543,37 @@ HIDE_SERVER_HEADER=true
 # If set, all API requests must include "Authorization: Bearer <token>" header
 # Leave empty or unset to disable authentication (default: disabled)
 API_BEARER_TOKEN=your-secret-token-here
+
+# JWT secret key for user session tracking (auto-generated if not set)
+# IMPORTANT: Set this in production to maintain consistent sessions across restarts
+JWT_SECRET_KEY=your-long-random-secret-key-here
+
+# JWT cookie configuration
+JWT_COOKIE_NAME=user_session  # Name of the session cookie (default: user_session)
+JWT_COOKIE_MAX_AGE=86400  # Cookie expiry in seconds (default: 86400 = 24 hours)
+JWT_REFRESH_THRESHOLD=0.5  # Refresh token when remaining life is below this percentage (0.0-1.0, default: 0.5 = 50%)
 ```
+
+**JWT Session Tracking:**
+The API uses JWT cookies to track user sessions and ensure users can only download audio files they generated. This happens automatically:
+- When a user first accesses the API, a JWT cookie is created with a unique user ID
+- All generated audio files are associated with this user ID
+- Users can only download files they created
+- Sessions expire after `JWT_COOKIE_MAX_AGE` seconds (default: 24 hours)
+- Tokens are automatically refreshed when remaining lifetime drops below `JWT_REFRESH_THRESHOLD` (default: 50%)
+
+**Token Auto-Refresh:**
+The middleware automatically refreshes JWT tokens to maintain seamless user sessions:
+- When a token's remaining lifetime is below the threshold percentage, it's automatically refreshed on the next request
+- Example: With `JWT_COOKIE_MAX_AGE=86400` (24h) and `JWT_REFRESH_THRESHOLD=0.5`, tokens refresh after 12 hours
+- Set `JWT_REFRESH_THRESHOLD=0.8` to refresh when 80% of the lifetime has passed (more frequent refreshes)
+- Set `JWT_REFRESH_THRESHOLD=0.2` to refresh only when 80% of the lifetime has elapsed (less frequent refreshes)
+
+**Important notes:**
+- `JWT_SECRET_KEY` should be a long, random string (recommended: 32+ characters)
+- If not set, a secret key is auto-generated on startup (not recommended for production)
+- Changing the secret key will invalidate all existing user sessions
+- For production, always set `JWT_SECRET_KEY` to maintain sessions across restarts
 
 **When to use authentication:**
 - Production deployments
@@ -589,26 +632,35 @@ ENABLE_WEB_PLAYER=true
 
 **Development:**
 ```env
+LOG_LEVEL=DEBUG
 ENABLE_OPENAPI_DOCS=true
 ENABLE_WEB_PLAYER=true
 API_BEARER_TOKEN=
 HIDE_SERVER_HEADER=true
+JWT_SECRET_KEY=  # Auto-generated for development
+JWT_REFRESH_THRESHOLD=0.5  # Refresh at 50% remaining lifetime
 ```
 
 **Production (Locked Down):**
 ```env
+LOG_LEVEL=INFO
 ENABLE_OPENAPI_DOCS=false
 ENABLE_WEB_PLAYER=false
 API_BEARER_TOKEN=your-secret-token
 HIDE_SERVER_HEADER=true
+JWT_SECRET_KEY=your-long-random-secret-key-here  # Required for production
+JWT_REFRESH_THRESHOLD=0.5  # Refresh at 50% remaining lifetime
 ```
 
 **Production (Public API with Docs):**
 ```env
+LOG_LEVEL=INFO
 ENABLE_OPENAPI_DOCS=true
 ENABLE_WEB_PLAYER=false
 API_BEARER_TOKEN=your-secret-token
 HIDE_SERVER_HEADER=true
+JWT_SECRET_KEY=your-long-random-secret-key-here  # Required for production
+JWT_REFRESH_THRESHOLD=0.5  # Refresh at 50% remaining lifetime
 ```
 
 ### API Responses for Disabled Features
@@ -674,6 +726,188 @@ ENABLE_TEMP_FILE_SYSTEM=false
 2. Background task periodically checks for expired files and deletes them
 3. When downloads start, files are removed from Redis tracking
 4. If Redis is not configured, falls back to filesystem-based cleanup
+
+#### S3-Based Temp File Storage (Optional)
+
+For cloud deployments or distributed systems requiring object storage, you can use S3-compatible storage (AWS S3, DigitalOcean Spaces, MinIO, etc.) to store temporary audio files:
+
+```bash
+# Enable S3 storage (when enabled, local filesystem is not used for temp files)
+ENABLE_S3_STORAGE=true
+
+# S3 endpoint URL
+# - AWS S3: https://s3.amazonaws.com
+# - DigitalOcean Spaces: https://nyc3.digitaloceanspaces.com
+# - MinIO: http://localhost:9000
+S3_ENDPOINT=https://s3.amazonaws.com
+
+# S3 region (e.g., us-east-1, nyc3, etc.)
+S3_REGION=us-east-1
+
+# S3 bucket name where temp files will be stored
+S3_BUCKET_NAME=kokoro-tts-temp-files
+
+# S3 access credentials
+S3_ACCESS_KEY=your-access-key-id
+S3_ACCESS_SECRET=your-secret-access-key
+
+# Secret key for HMAC signature generation (for S3 key verification)
+# Used to sign the S3 key when return_s3_key=true is set in API requests
+# This prevents clients from brute-forcing S3 keys and allows other services to verify the object access
+S3_SIGNATURE_SECRET=your-long-random-secret-key-here
+
+# S3 presigned URL expiry in seconds (default: 1 hour)
+# How long AWS-signed presigned URLs remain valid for downloads
+S3_SIGNED_URL_EXPIRY=3600
+
+# Redis is still recommended for lifecycle management when using S3
+REDIS_HOST=localhost
+REDIS_PORT=6379
+TEMP_FILE_TTL_SECONDS=3600
+```
+
+**Benefits of S3-based storage:**
+
+- Scalable: No local disk space limitations
+- Distributed: Works seamlessly across multiple app instances
+- Cloud-native: Integrates with existing S3-compatible infrastructure
+- Secure: Uses AWS presigned URLs and HMAC key signatures for downloads
+- Cost-effective: Pay only for storage used
+
+**How it works:**
+
+1. When audio is generated with `return_download_link=true` or `return_s3_key=true`, files are buffered and uploaded to S3
+2. Files are registered in Redis with TTL for lifecycle management
+3. For `return_download_link=true`: Server returns a download URL that redirects to AWS presigned URL
+4. For `return_s3_key=true`: Server returns S3 key with HMAC signature for direct client-side URL generation
+5. Background cleanup task removes expired files from both Redis and S3
+
+**API Usage - Two Methods:**
+
+**Method 1: Server-side presigned URL (return_download_link)**
+
+For endpoints that return JSON (e.g., `/dev/captioned_speech`):
+```python
+import requests
+
+response = requests.post(
+    "http://localhost:8880/dev/captioned_speech",
+    json={
+        "input": "Hello world!",
+        "voice": "af_bella",
+        "return_download_link": True,  # Server handles presigned URL generation
+        "stream": False
+    }
+)
+
+# Download URL is in the response body
+data = response.json()
+download_url = data.get("download_url")
+# Access the download URL - server will redirect to S3 presigned URL
+```
+
+For endpoints that return binary audio (e.g., `/v1/audio/speech`):
+```python
+import requests
+
+response = requests.post(
+    "http://localhost:8880/v1/audio/speech",
+    json={
+        "input": "Hello world!",
+        "voice": "af_bella",
+        "return_download_link": True  # Server handles presigned URL generation
+    }
+)
+
+# Download URL is in response header
+download_url = response.headers.get("X-Download-Url")
+# Access the download URL - server will redirect to S3 presigned URL
+```
+
+**Method 2: Client-side S3 key with signature (return_s3_key)**
+
+For endpoints that return JSON (e.g., `/dev/captioned_speech`):
+```python
+import requests
+
+response = requests.post(
+    "http://localhost:8880/dev/captioned_speech",
+    json={
+        "input": "Hello world!",
+        "voice": "af_bella",
+        "return_s3_key": True,  # Get S3 key with HMAC signature
+        "stream": False
+    }
+)
+
+# S3 key data is in the response body as an object
+data = response.json()
+s3_key_info = data.get("s3_key_info")  # {"key": "temp/abc123.mp3", "signature": "hmac_sha256_hex"}
+s3_key = s3_key_info["key"]
+s3_signature = s3_key_info["signature"]
+
+# Construct download URL
+filename = s3_key.split('/')[-1]
+dir = s3_key.split('/')[0]
+download_url = f"http://localhost:8880/v1/download/s3/{filename}?dir={dir}&signature={s3_signature}"
+```
+
+For endpoints that return binary audio (e.g., `/v1/audio/speech`):
+```python
+import requests
+import json
+
+response = requests.post(
+    "http://localhost:8880/v1/audio/speech",
+    json={
+        "input": "Hello world!",
+        "voice": "af_bella",
+        "return_s3_key": True  # Get S3 key with HMAC signature
+    }
+)
+
+# S3 key data is in response header
+s3_key_data = json.loads(response.headers.get("X-S3-Key"))
+# s3_key_data = {"key": "temp/abc123.mp3", "signature": "hmac_sha256_hex"}
+
+# Construct download URL
+s3_key = s3_key_data["key"]
+signature = s3_key_data["signature"]
+filename = s3_key.split('/')[-1]
+dir = s3_key.split('/')[0]
+download_url = f"http://localhost:8880/v1/download/s3/{filename}?dir={dir}&signature={signature}"
+```
+
+**Security:**
+
+- **AWS Presigned URLs**: Generated using AWS SDK's standard presigning method (boto3)
+- **HMAC S3 Key Signatures**: Prevent clients from forging S3 keys when using `return_s3_key`
+- **User Ownership**: JWT session tracking ensures users can only access their own files
+- **Time-Limited Access**: Presigned URLs expire after `S3_SIGNED_URL_EXPIRY` seconds
+
+**S3-Compatible Services:**
+
+This implementation works with any S3-compatible service:
+
+- **AWS S3**: Native Amazon S3 service
+- **DigitalOcean Spaces**: Object storage with S3-compatible API
+- **MinIO**: Self-hosted S3-compatible object storage
+- **Backblaze B2**: S3-compatible cloud storage
+- **Wasabi**: S3-compatible hot cloud storage
+
+**Example Configuration for DigitalOcean Spaces:**
+
+```bash
+ENABLE_S3_STORAGE=true
+S3_ENDPOINT=https://nyc3.digitaloceanspaces.com
+S3_REGION=nyc3
+S3_BUCKET_NAME=your-space-name
+S3_ACCESS_KEY=your-spaces-access-key
+S3_ACCESS_SECRET=your-spaces-secret-key
+S3_SIGNATURE_SECRET=your-hmac-signing-secret
+```
+
+**Note:** When S3 storage is enabled, local filesystem storage is automatically disabled for temp files. Redis is still recommended for lifecycle management and ownership tracking.
 
 For a complete list of environment variables, see the `.env.example` file or `api/src/core/config.py`.
 

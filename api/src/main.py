@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
 from .core.config import settings
-from .core.middleware import (BearerAuthMiddleware)
+from .core.middleware import (BearerAuthMiddleware, JWTCookieMiddleware)
 from .routers.debug import router as debug_router
 from .routers.development import router as dev_router
 from .routers.openai_compatible import router as openai_router
@@ -36,7 +36,7 @@ def setup_logger():
                 "<fg #4169E1>{module}:{line}</fg #4169E1> | "
                 "{message}",
                 "colorize": True,
-                "level": "DEBUG",
+                "level": settings.log_level.upper(),
             },
         ],
     }
@@ -82,6 +82,22 @@ async def lifespan(app: FastAPI):
     
     # Store Redis client in app state for use in endpoints
     app.state.redis = redis_client
+    
+    # Initialize S3 client if configured
+    s3_client = None
+    if settings.enable_s3_storage:
+        s3_client = settings.get_s3_client()
+        if s3_client:
+            # Test S3 connection by listing bucket
+            s3_client.head_bucket(Bucket=settings.s3_bucket_name)
+            logger.info(f"✅ S3 connected: {settings.s3_bucket_name}")
+        else:
+            logger.warning("S3 storage enabled but client initialization failed")
+            raise Exception("S3 client initialization failed")
+            
+    
+    # Store S3 client in app state for use in endpoints
+    app.state.s3 = s3_client
 
     logger.info("Loading TTS model and voice packs...")
 
@@ -147,7 +163,9 @@ async def lifespan(app: FastAPI):
         startup_msg += "\n🎵 Web Player: DISABLED"
     
     # Add temp file management info
-    if redis_client:
+    if s3_client:
+        startup_msg += f"\n🗂️  Temp Files: S3 storage enabled (Bucket: {settings.s3_bucket_name})"
+    elif redis_client:
         startup_msg += f"\n🗂️  Temp Files: Redis-managed (TTL: {settings.temp_file_ttl_seconds}s)"
     elif settings.enable_temp_file_system:
         startup_msg += "\n🗂️  Temp Files: Filesystem cleanup enabled"
@@ -192,10 +210,13 @@ app = FastAPI(
     redoc_url=f"{api_prefix}/redoc" if settings.enable_openapi_docs else None,
 )
 
-# 1. Authentication middleware
+# 1. JWT Cookie middleware (must be first to set user_id in request.state)
+app.add_middleware(JWTCookieMiddleware)
+
+# 2. Authentication middleware
 app.add_middleware(BearerAuthMiddleware)
 
-# 2. CORS middleware if enabled
+# 3. CORS middleware if enabled
 if settings.cors_enabled:
     app.add_middleware(
         CORSMiddleware,

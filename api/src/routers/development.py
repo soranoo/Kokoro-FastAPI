@@ -22,6 +22,7 @@ from ..services.tts_service import TTSService
 from ..structures import (
     CaptionedSpeechRequest,
     CaptionedSpeechResponse,
+    S3KeyInfo,
     WordTimestamp,
 )
 from ..structures.custom_responses import JSONStreamingResponse
@@ -246,6 +247,7 @@ async def create_captioned_speech(
         }.get(request.response_format, f"audio/{request.response_format}")
 
         writer = StreamingAudioWriter(request.response_format, sample_rate=24000)
+        
         # Check if streaming is requested (default for OpenAI client)
         if request.stream:
             # Create generator but don't start it yet
@@ -253,29 +255,35 @@ async def create_captioned_speech(
                 tts_service, request, client_request, writer
             )
 
-            # If download link requested, wrap generator with temp file writer
-            if request.return_download_link:
+            # If download link or S3 key requested, wrap generator with temp file writer
+            if request.return_download_link or request.return_s3_key:
                 from ..services.temp_manager import TempFileWriter
+                import json
 
                 # Get Redis client from app state (may be None)
                 redis_client = getattr(client_request.app.state, 'redis', None)
                 
-                temp_writer = TempFileWriter(request.response_format, redis=redis_client)
+                # Get S3 client from app state (may be None)
+                s3_client = getattr(client_request.app.state, 's3', None)
+                
+                # Get user ID from request state (set by JWT middleware)
+                user_id = getattr(client_request.state, 'user_id', None)
+                
+                temp_writer = TempFileWriter(
+                    request.response_format, 
+                    redis=redis_client, 
+                    user_id=user_id, 
+                    s3_client=s3_client,
+                    return_s3_key=request.return_s3_key
+                )
                 await temp_writer.__aenter__()  # Initialize temp file
 
-                # Get download path immediately after temp file creation
-                download_path = temp_writer.download_path
-                
-                # Construct full URL with base URL and prefix
-                full_download_url = f"{settings.get_base_url()}{settings.api_url_prefix}/v1{download_path}"
-
-                # Create response headers with download path
+                # Create response headers
                 headers = {
                     "Content-Disposition": f"attachment; filename=speech.{request.response_format}",
                     "X-Accel-Buffering": "no",
                     "Cache-Control": "no-cache",
                     "Transfer-Encoding": "chunked",
-                    "X-Download-Path": full_download_url,
                 }
 
                 # Create async generator for streaming
@@ -301,11 +309,24 @@ async def create_captioned_speech(
                                 else:
                                     chunk_data.word_timestamps = []
 
-                                yield CaptionedSpeechResponse(
-                                    audio=base64_chunk,
-                                    audio_format=content_type,
-                                    timestamps=chunk_data.word_timestamps,
-                                )
+                                # Build response with download info
+                                response_data = {
+                                    "audio": base64_chunk,
+                                    "audio_format": content_type,
+                                    "timestamps": chunk_data.word_timestamps,
+                                }
+                                
+                                # Add download info if available
+                                if request.return_s3_key and temp_writer.s3_key_data:
+                                    response_data["s3_key_info"] = S3KeyInfo(
+                                        key=temp_writer.s3_key_data['key'],
+                                        signature=temp_writer.s3_key_data['signature']
+                                    )
+                                elif request.return_download_link and temp_writer.download_path:
+                                    full_download_url = f"{settings.get_base_url()}{settings.api_url_prefix}/v1{temp_writer.download_path}"
+                                    response_data["download_url"] = full_download_url
+
+                                yield CaptionedSpeechResponse(**response_data)
                             else:
                                 if (
                                     chunk_data.word_timestamps is not None
@@ -381,6 +402,11 @@ async def create_captioned_speech(
                 },
             )
         else:
+            headers = {
+                "Content-Disposition": f"attachment; filename=speech.{request.response_format}",
+                "Cache-Control": "no-cache",  # Prevent caching
+            }
+
             # Generate complete audio using public interface
             audio_data = await tts_service.generate_audio(
                 text=request.input,
@@ -410,23 +436,76 @@ async def create_captioned_speech(
             )
             output = audio_data.output + final.output
 
+            if request.return_download_link or request.return_s3_key:
+                from ..services.temp_manager import TempFileWriter
+                import json
+
+                # Use response_format for temp file (no download_format in CaptionedSpeechRequest)
+                output_format = request.response_format
+                
+                # Get Redis client from app state (may be None)
+                redis_client = getattr(client_request.app.state, 'redis', None)
+                
+                # Get S3 client from app state (may be None)
+                s3_client = getattr(client_request.app.state, 's3', None)
+                
+                # Get user ID from request state (set by JWT middleware)
+                user_id = getattr(client_request.state, 'user_id', None)
+                
+                temp_writer = TempFileWriter(
+                    output_format, 
+                    redis=redis_client, 
+                    user_id=user_id, 
+                    s3_client=s3_client,
+                    return_s3_key=request.return_s3_key
+                )
+                await temp_writer.__aenter__()  # Initialize temp file
+
+                try:
+                    # Write chunks to temp file
+                    logger.info("Writing chunks to temporary file for download")
+                    await temp_writer.write(output)
+                    # Finalize the temp file
+                    await temp_writer.finalize()
+
+                except Exception as e:
+                    logger.error(f"Error in temp file writing: {e}")
+                    await temp_writer.__aexit__(type(e), e, e.__traceback__)
+                    raise
+                finally:
+                    # Ensure temp writer is closed
+                    if not temp_writer._finalized:
+                        await temp_writer.__aexit__(None, None, None)
+                    writer.close()
+
             base64_output = base64.b64encode(output).decode("utf-8")
 
-            content = CaptionedSpeechResponse(
-                audio=base64_output,
-                audio_format=content_type,
-                timestamps=audio_data.word_timestamps,
-            ).model_dump()
+            # Build response with download info
+            response_data = {
+                "audio": base64_output,
+                "audio_format": content_type,
+                "timestamps": audio_data.word_timestamps,
+            }
+            
+            # Add download info if temp file was created
+            if request.return_download_link or request.return_s3_key:
+                if request.return_s3_key and temp_writer.s3_key_data:
+                    response_data["s3_key_info"] = S3KeyInfo(
+                        key=temp_writer.s3_key_data['key'],
+                        signature=temp_writer.s3_key_data['signature']
+                    )
+                if request.return_download_link and temp_writer.download_path:
+                    full_download_url = f"{settings.get_base_url()}{settings.api_url_prefix}/v1{temp_writer.download_path}"
+                    response_data["download_url"] = full_download_url
+
+            content = CaptionedSpeechResponse(**response_data).model_dump()
 
             writer.close()
 
             return JSONResponse(
                 content=content,
                 media_type="application/json",
-                headers={
-                    "Content-Disposition": f"attachment; filename=speech.{request.response_format}",
-                    "Cache-Control": "no-cache",  # Prevent caching
-                },
+                headers=headers,
             )
 
     except ValueError as e:

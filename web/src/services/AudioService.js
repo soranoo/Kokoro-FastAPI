@@ -55,7 +55,7 @@ export class AudioService {
             });
 
             // Check for download path as soon as we get the response
-            const downloadPath = response.headers.get('x-download-path');
+            const downloadPath = response.headers.get('x-download-url');
             if (downloadPath) {
                 // Server now returns full URL, no need to prepend /v1
                 this.serverDownloadPath = downloadPath;
@@ -122,14 +122,14 @@ export class AudioService {
                     // Get final download path from header after stream is complete
                     const headers = Object.fromEntries(response.headers.entries());
                     console.log('Response headers at stream end:', headers);
-                    
-                    const downloadPath = headers['x-download-path'];
+
+                    const downloadPath = headers['x-download-url'];
                     if (downloadPath) {
                         // Server now returns full URL, no need to prepend /v1
                         this.serverDownloadPath = downloadPath;
-                        console.log('Download path received:', this.serverDownloadPath);
+                        console.log('Download URL received:', this.serverDownloadPath);
                     } else {
-                        console.warn('No X-Download-Path header found. Available headers:',
+                        console.warn('No X-Download-Url header found. Available headers:',
                             Object.keys(headers).join(', '));
                     }
 
