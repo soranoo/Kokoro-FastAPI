@@ -460,7 +460,7 @@ async def create_captioned_speech(
                 if request.return_s3_key and temp_writer.s3_key_data:
                     # Return S3 key with HMAC signature as JSON
                     headers["X-S3-Key"] = json.dumps(temp_writer.s3_key_data)
-                elif request.return_download_link and temp_writer.download_path:
+                if request.return_download_link and temp_writer.download_path:
                     # Return download URL
                     headers["X-Download-Url"] = f"{settings.get_base_url()}{settings.api_url_prefix}/v1{temp_writer.download_path}"
 
